@@ -139,7 +139,7 @@ class Hypergraph:
 					self.nodes.add(virtual_node)
 					virtual_edges.append(virtual_edge1)
 					virtual_edges.append(virtual_edge2)
-		for edge in virtual_edges:
+		for edge in virtual_edges:	
 			self.add(edge)
 
 	def compose_edge(self, edge, max_size):
@@ -167,7 +167,8 @@ class Hypergraph:
 
 			if len(new_tails) <= max_size:
 				new_edge = Edge(edge.head, tuple(new_tails))
-				self.add(new_edge)
+				if new_edge not in self.edges:
+					self.add(new_edge)
 		
 	def add_composed_edges(self, max_size):	
 		composed_edges = set()

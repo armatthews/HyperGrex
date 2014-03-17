@@ -1,5 +1,6 @@
 #coding: utf8
 import sys
+import math
 import heapq
 from tree import TreeNode, NonTerminalNode, TerminalNode
 from collections import defaultdict
@@ -10,8 +11,10 @@ from itertools import izip
 # Reads the next line from a file stream representing input trees.
 # TODO: Allow this to read in Hypergraphs or Berkeley k-best lists
 def read_tree_file(stream):
-	line = stream.readline()
-	if line:
+	while True:
+		line = stream.readline()
+		if not line:
+			break
 		line = line.decode('utf-8').strip()
 		# Sometimes Berkeley Parser likes to given broken trees
 		if line == '(())':
@@ -23,11 +26,27 @@ def read_tree_file(stream):
 		hg = Hypergraph.from_tree(tree)
 		yield hg
 
+def read_kbest_tree_file(stream):
+	while True:
+		line = stream.readline()
+		if not line:
+			break
+		line = line.decode('utf-8').strip()
+		if not line:
+			continue
+		# TODO: It's as of yet unknown what Berkeley does in a kbest
+		#       list when its best tree is (())
+		score, tree = line.split('\t')
+		score = math.exp(float(score))
+			
+
 # Reads the next line from a file stream representing alignments.
 # TODO: Allow this to add probabilities to alignment links.
 def read_alignment_file(stream):
-	line = stream.readline()
-	if  line:
+	while True:
+		line = stream.readline()
+		if not line:
+			break
 		line = line.decode('utf-8').strip()
 		alignment = Alignment.from_string(line)
 		yield alignment
@@ -191,6 +210,8 @@ def handle_sentence(source_tree, target_tree, alignment):
 		source_tree.add_virtual_nodes(args.virtual_size, False)
 		target_tree.add_virtual_nodes(args.virtual_size, False)
 		if not args.minimal_rules:
+			print >>sys.stderr, 'source_tree contains', len(source_tree.nodes), 'nodes and', len(source_tree.edges), 'edges'
+			print >>sys.stderr, 'target_tree contains', len(target_tree.nodes), 'nodes and', len(target_tree.edges), 'edges'
 			source_tree.add_composed_edges(args.max_rule_size)
 			target_tree.add_composed_edges(args.max_rule_size)
 
