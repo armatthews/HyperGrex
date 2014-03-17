@@ -6,9 +6,10 @@ from collections import defaultdict
 from helpers import computeSpans, Span, enumerate_subsets
 
 class Edge:
-	def __init__(self, head, tails):
+	def __init__(self, head, tails, weight=1.0):
 		self.head = head
 		self.tails = tails
+		self.weight = weight
 
 	def __eq__(self, other):
 		return isinstance(other, Edge) and self.head == other.head and self.tails == other.tails
@@ -17,19 +18,9 @@ class Edge:
 		return hash((self.head, self.tails))
 
 	def __repr__(self):
-		return "Edge(%s,%s)" % (repr(self.head), repr(self.tails))
+		return "Edge(%s,%s,%s)" % (repr(self.head), repr(self.tails), repr(self.weight))
 
-class Node:
-	def __init__(self, label=None):
-		self.label = label
-
-	def __str__(self):
-		return str(self.label)
-
-	def __repr__(self):
-		return "Node(%s)" % (repr(self.label))
-
-class NodeWithSpan(Node):
+class NodeWithSpan:
 	def __init__(self, label, span, is_virtual=False):
 		self.label = label
 		self.span = span
@@ -74,14 +65,22 @@ class Hypergraph:
 	def add(self, e):
 		self.nodes.add(e.head)
 		self.nodes.update(e.tails)
-		self.edges.add(e)
+		if e not in self.edges:
+			self.edges.add(e)
+		else:
+			if e.weight != None and e.weight != 0.0:
+				for edge in self.edges:
+					if hash(edge) == hash(e):
+						edge.weight += e.weight
+						break
 		self.head_index[e.head].add(e)
 		for tail in e.tails:
 			self.tail_index[tail].add(e)
 
 	def combine(self, other):
 		self.nodes.update(other.nodes)
-		self.edges.update(other.edges)
+		for edge in other.edges:
+			self.add(edge)
 		self.head_index.update(other.head_index)
 		self.tail_index.update(other.tail_index)
 
