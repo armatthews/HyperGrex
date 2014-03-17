@@ -52,28 +52,28 @@ def read_alignment_file(stream):
 		yield alignment
 
 # Determines whether source_node and target_node are node-aligned.
-def are_aligned(source_node, target_node, source_hg, target_hg, s2t_word_alignments, t2s_word_alignments):
-	source_terminals = set(source_node.find_terminals(source_hg))
-	target_terminals = set(target_node.find_terminals(target_hg))
+def are_aligned(source_node, target_node, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
+	source_node_terminals = set(source_terminals[source_node.span.start : source_node.span.end])
+	target_node_terminals = set(target_terminals[target_node.span.start : target_node.span.end])
 
-	has_alignments = True in [len(s2t_word_alignments[terminal]) > 0 for terminal in source_terminals]
+	has_alignments = True in [len(s2t_word_alignments[terminal]) > 0 for terminal in source_node_terminals]
 	if not has_alignments:
 		return False
 
-	for source_terminal in source_terminals:
+	for source_terminal in source_node_terminals:
 		for target_terminal in s2t_word_alignments[source_terminal]:
-			if target_terminal not in target_terminals:
+			if target_terminal not in target_node_terminals:
 				return False
 
-	for target_terminal in target_terminals:
+	for target_terminal in target_node_terminals:
 		for source_terminal in t2s_word_alignments[target_terminal]:
-			if source_terminal not in source_terminals:
+			if source_terminal not in source_node_terminals:
 				return False
 
 	return True
 
 # Extracts all available rules from the node pair source_node and target_node
-def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size):
+def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size, source_terminals, target_terminals):
 	rules = set()
 	for source_children in source_node.get_child_sets(source_root):
 		for target_children in target_node.get_child_sets(target_root):
@@ -112,11 +112,9 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 						t2s_rule_part_map[t] = (s, index)
 						index += 1
 				else:
-					for terminal in source_children[i].find_terminals(source_root):
-						source_parts.append(terminal)
+					source_parts += source_terminals[source_children[i].span.start : source_children[i].span.end]
 			for node in unused_target_children:
-				for terminal in node.find_terminals(target_root):
-					target_parts.append(terminal)
+				target_parts += target_terminals[node.span.start : node.span.end]
 
 			if len(source_parts) > max_rule_size or len(target_parts) > max_rule_size:
 				continue
@@ -182,7 +180,7 @@ def compute_generations(node, root, current_generation=0, generations={}):
 				compute_generations(child, root, current_generation + 1, generations)
 	return generations
 
-# Removes non-minimal edges from a hypergraph. We define an edge as
+# Removes non-minimal node alignments from a hypergraph. We define an edge as
 # non-minimal if it skips (i.e. composes over) a node that is
 # node-aligned to something in the opposite tree.
 def minimize_alignments(s2t, t2s, source_root, target_root):
@@ -231,7 +229,7 @@ def handle_sentence(source_tree, target_tree, alignment):
 		t2s_node_alignments = defaultdict(set)
 		for s_node in source_tree.nodes:
 			for t_node in target_tree.nodes:
-					if are_aligned(s_node, t_node, source_tree, target_tree, s2t_word_alignments, t2s_word_alignments):
+					if are_aligned(s_node, t_node, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
 						s2t_node_alignments[s_node].add(t_node)
 						t2s_node_alignments[t_node].add(s_node)
 
@@ -243,7 +241,7 @@ def handle_sentence(source_tree, target_tree, alignment):
 		for source_node, target_nodes in s2t_node_alignments.iteritems():
 			for target_node in target_nodes:
 				if not source_node.is_terminal(source_tree) and not target_node.is_terminal(target_tree):
-					extract_rules(source_node, target_node, s2t_node_alignments.copy(), t2s_node_alignments, source_tree, target_tree, args.max_rule_size)
+					extract_rules(source_node, target_node, s2t_node_alignments.copy(), t2s_node_alignments, source_tree, target_tree, args.max_rule_size, source_terminals, target_terminals)
 
 if __name__ == "__main__":
 	import argparse
