@@ -7,13 +7,32 @@ from helpers import computeSpans, Alignment, getSpanMask
 from hypergraph import Hypergraph
 from itertools import izip
 
-# Note: it is possible that an unaligned word can occur in more than one rule even in minimal mode.
-# This occurs if an unaligned word can be added to something that aligns to a minimal span.
-# For example, consider this input:
-# Source tree: (NP (DT du) (NN pain))
-# Target tree: (NP (NN bread))
-# Alignment: 1-0
+# Reads the next line from a file stream representing input trees.
+# TODO: Allow this to read in Hypergraphs or Berkeley k-best lists
+def read_tree_file(stream):
+	line = stream.readline()
+	if line:
+		line = line.decode('utf-8').strip()
+		# Sometimes Berkeley Parser likes to given broken trees
+		if line == '(())':
+			yield None
 
+		# Otherwise, turn the string into a tree, and then into a hypergraph
+		tree = TreeNode.from_string(line)
+		computeSpans(tree)
+		hg = Hypergraph.from_tree(tree)
+		yield hg
+
+# Reads the next line from a file stream representing alignments.
+# TODO: Allow this to add probabilities to alignment links.
+def read_alignment_file(stream):
+	line = stream.readline()
+	if  line:
+		line = line.decode('utf-8').strip()
+		alignment = Alignment.from_string(line)
+		yield alignment
+
+# Determines whether source_node and target_node are node-aligned.
 def are_aligned(source_node, target_node, source_hg, target_hg, s2t_word_alignments, t2s_word_alignments):
 	source_terminals = set(source_node.find_terminals(source_hg))
 	target_terminals = set(target_node.find_terminals(target_hg))
@@ -34,6 +53,7 @@ def are_aligned(source_node, target_node, source_hg, target_hg, s2t_word_alignme
 
 	return True
 
+# Extracts all available rules from the node pair source_node and target_node
 def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size):
 	rules = set()
 	for source_children in source_node.get_child_sets(source_root):
@@ -133,6 +153,8 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 		print rule.encode('utf-8')
 	sys.stdout.flush()
 
+# Computes a dictionary whos keys are nodes in a hypergraph, and whose keys
+# are integers, representing distance from the root of the hypergraph.
 def compute_generations(node, root, current_generation=0, generations={}):
 	if node not in generations or current_generation < generations[node]:
 		generations[node] = current_generation
@@ -141,6 +163,9 @@ def compute_generations(node, root, current_generation=0, generations={}):
 				compute_generations(child, root, current_generation + 1, generations)
 	return generations
 
+# Removes non-minimal edges from a hypergraph. We define an edge as
+# non-minimal if it skips (i.e. composes over) a node that is
+# node-aligned to something in the opposite tree.
 def minimize_alignments(s2t, t2s, source_root, target_root):
 	def node_key(node):
 		type_match = 1 if source_node.is_terminal(source_root) == node.is_terminal(target_root) else 0
@@ -159,15 +184,10 @@ def minimize_alignments(s2t, t2s, source_root, target_root):
 				if len(t2s[target_node]) == 0:
 					del t2s[target_node]
 
-def handle_sentence(source_tree_string, target_tree_string, alignment_string):
-		# Build requisite tree structures
-		source_tree = TreeNode.from_string(source_tree_string)
-		target_tree = TreeNode.from_string(target_tree_string)
-		alignment = Alignment.from_string(alignment_string)
-		computeSpans(source_tree)
-		computeSpans(target_tree)
-		source_tree = Hypergraph.from_tree(source_tree)
-		target_tree = Hypergraph.from_tree(target_tree)
+# Takes two hypergraphs representing source and target trees, as well as a word
+# alignment, and finds all rules extractable there from.
+def handle_sentence(source_tree, target_tree, alignment):
+		# Add any necessary edges to the tree structures
 		source_tree.add_virtual_nodes(args.virtual_size, False)
 		target_tree.add_virtual_nodes(args.virtual_size, False)
 		if not args.minimal_rules:
@@ -218,17 +238,13 @@ if __name__ == "__main__":
 	source_tree_file = open(args.source_trees)
 	target_tree_file = open(args.target_trees)
 	alignment_file = open(args.alignments)
-	sentence_number = 0
-	for source_tree_string, target_tree_string, alignment_string in izip(source_tree_file, target_tree_file, alignment_file):
-		# Read in input
-		source_tree_string = source_tree_string.decode('utf-8').strip()
-		target_tree_string = target_tree_string.decode('utf-8').strip()
-		alignment_string = alignment_string.decode('utf-8').strip()
-		sentence_number += 1
-		print 'Sentence', sentence_number
-                if source_tree_string.startswith('#') or target_tree_string.startswith('#') or alignment_string.startswith('#') \
-			or source_tree_string == '(())' or target_tree_string == '(())':
-                        continue
 
-		handle_sentence(source_tree_string, target_tree_string, alignment_string)
+	sentence_number = 1
+	for source_tree, target_tree, alignment in izip(read_tree_file(source_tree_file), read_tree_file(target_tree_file), read_alignment_file(alignment_file)):
+		print 'Sentence', sentence_number
+		# Can happen if Berkeley gives borked trees
+		if source_tree == None or target_tree == None:
+			continue
+		handle_sentence(source_tree, target_tree, alignment)
 		sys.stdout.flush()
+		sentence_number += 1
