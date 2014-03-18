@@ -78,7 +78,7 @@ def are_aligned(source_node, target_node, source_terminals, target_terminals, s2
 	return True
 
 # Extracts all available rules from the node pair source_node and target_node
-def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size, source_terminals, target_terminals):
+def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
 	rules = set()
 	for source_children in source_node.get_child_sets(source_root):
 		for target_children in target_node.get_child_sets(target_root):
@@ -165,10 +165,17 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 				t = 'V' if '-' in source.label else 'O'
 				node_types.append(s + t)
 
+			# Calculate the node-to-node and word-to-word alignments within this rule
+			alignments = []
+			for i, source_part in enumerate(source_parts):
+				for j, target_part in enumerate(target_parts):
+					if target_part in s2t_node_alignments[source_part] or source_part in t2s_node_alignments[target_part] or \
+					   target_part in s2t_word_alignments[source_part] or source_part in t2s_word_alignments[target_part]:
+						alignments.append((i, j))
+
 			# output !
 			rule_type = 'A' if is_abstract else 'P' if is_phrase else 'G'
 			lhs = '[%s::%s]' % (source_node.label, target_node.label)
-			alignments = []
 			rule = ' ||| '.join([rule_type, lhs, ' '.join(source_rhs), ' '.join(target_rhs), ' '.join('%d-%d' % link for link in alignments), ' '.join(node_types)])
 			rules.add(rule)
 	for rule in rules:
@@ -231,6 +238,7 @@ def handle_sentence(source_tree, target_tree, alignment):
 		s2t_node_alignments = defaultdict(set)
 		t2s_node_alignments = defaultdict(set)
 		for s_node in source_tree.nodes:
+			s2t_node_alignments[s_node] = set()
 			for t_node in target_tree.nodes:
 					if are_aligned(s_node, t_node, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
 						s2t_node_alignments[s_node].add(t_node)
@@ -244,7 +252,7 @@ def handle_sentence(source_tree, target_tree, alignment):
 		for source_node, target_nodes in s2t_node_alignments.iteritems():
 			for target_node in target_nodes:
 				if not source_node.is_terminal(source_tree) and not target_node.is_terminal(target_tree):
-					extract_rules(source_node, target_node, s2t_node_alignments.copy(), t2s_node_alignments, source_tree, target_tree, args.max_rule_size, source_terminals, target_terminals)
+					extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_tree, target_tree, args.max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments)
 
 if __name__ == "__main__":
 	import argparse
