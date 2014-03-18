@@ -143,7 +143,7 @@ class Hypergraph:
 			self.add(edge)
 
 	def compose_edge(self, edge, max_size, already_composed=set()):
-		if self in already_composed:
+		if edge in already_composed:
 			return
 		for tail in edge.tails:
 			for child_edge in self.head_index[tail].copy():
@@ -169,9 +169,10 @@ class Hypergraph:
 
 			if len(new_tails) <= max_size:
 				new_edge = Edge(edge.head, tuple(new_tails))
-				if new_edge not in self.edges:	
+				print >>sys.stderr, 'Trying to add edge:', str(new_edge)
+				if new_edge not in self.edges:
 					self.add(new_edge)
-		already_composed.add(self)
+		already_composed.add(edge)
 		
 	def add_composed_edges(self, max_size):	
 		composed_edges = set()
