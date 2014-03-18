@@ -19,6 +19,7 @@ def read_tree_file(stream):
 		# Sometimes Berkeley Parser likes to given broken trees
 		if line == '(())':
 			yield None
+			continue
 
 		# Otherwise, turn the string into a tree, and then into a hypergraph
 		tree = TreeNode.from_string(line)
@@ -53,10 +54,14 @@ def read_alignment_file(stream):
 
 # Determines whether source_node and target_node are node-aligned.
 def are_aligned(source_node, target_node, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
-	source_node_terminals = set(source_terminals[source_node.span.start : source_node.span.end])
-	target_node_terminals = set(target_terminals[target_node.span.start : target_node.span.end])
+	source_node_terminals = source_terminals[source_node.span.start : source_node.span.end]
+	target_node_terminals = target_terminals[target_node.span.start : target_node.span.end]
 
-	has_alignments = True in [len(s2t_word_alignments[terminal]) > 0 for terminal in source_node_terminals]
+	has_alignments = False
+	for terminal in source_node_terminals:
+		if len(s2t_word_alignments[terminal]) > 0:
+			has_alignments = True
+			break
 	if not has_alignments:
 		return False
 
@@ -208,8 +213,6 @@ def handle_sentence(source_tree, target_tree, alignment):
 		source_tree.add_virtual_nodes(args.virtual_size, False)
 		target_tree.add_virtual_nodes(args.virtual_size, False)
 		if not args.minimal_rules:
-			print >>sys.stderr, 'source_tree contains', len(source_tree.nodes), 'nodes and', len(source_tree.edges), 'edges'
-			print >>sys.stderr, 'target_tree contains', len(target_tree.nodes), 'nodes and', len(target_tree.edges), 'edges'
 			source_tree.add_composed_edges(args.max_rule_size)
 			target_tree.add_composed_edges(args.max_rule_size)
 

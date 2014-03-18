@@ -142,17 +142,19 @@ class Hypergraph:
 		for edge in virtual_edges:	
 			self.add(edge)
 
-	def compose_edge(self, edge, max_size):
+	def compose_edge(self, edge, max_size, already_composed=set()):
+		if self in already_composed:
+			return
 		for tail in edge.tails:
 			for child_edge in self.head_index[tail].copy():
-				self.compose_edge(child_edge, max_size)
+				self.compose_edge(child_edge, max_size, already_composed)
 
 		tail_choices = []
 		for tail in edge.tails:
 			choices = []
 			choices.append((tail,))
 			for child_edge in self.head_index[tail]:
-				if len(child_edge.tails) <= max_size:
+				if len(child_edge.tails) <= max_size - len(edge.tails) + 1:
 					choices.append(child_edge.tails)
 			tail_choices.append(choices)
 
@@ -167,8 +169,9 @@ class Hypergraph:
 
 			if len(new_tails) <= max_size:
 				new_edge = Edge(edge.head, tuple(new_tails))
-				if new_edge not in self.edges:
+				if new_edge not in self.edges:	
 					self.add(new_edge)
+		already_composed.add(self)
 		
 	def add_composed_edges(self, max_size):	
 		composed_edges = set()
@@ -180,8 +183,12 @@ if __name__ == "__main__":
 	tree = TreeNode.from_string(s)
 	computeSpans(tree)
 	hg = Hypergraph.from_tree(tree)
-	print hg.to_json()
+	print 'HG has %d nodes and %d edges' % (len(hg.nodes), len(hg.edges))
+	#print hg.to_json()
 	hg.add_virtual_nodes(2, False)
-	print hg.to_json()
+	print 'HG has %d nodes and %d edges' % (len(hg.nodes), len(hg.edges))
+	#print hg.to_json()
 	hg.add_composed_edges(5)
-	print hg.to_json()
+	print 'HG has %d nodes and %d edges' % (len(hg.nodes), len(hg.edges))
+	#print hg.to_json()
+
