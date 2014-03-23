@@ -187,3 +187,13 @@ def enumerate_subsets(items):
 			else:
 				indices[i] = 0
 
+# Computes a dictionary whos keys are nodes in a hypergraph, and whose keys
+# are integers, representing distance from the root of the hypergraph.
+def compute_generations(node, root, current_generation=0, generations={}):
+	if node not in generations or current_generation < generations[node]:
+		generations[node] = current_generation
+	for children in node.get_child_sets(root):
+		for child in children:
+				compute_generations(child, root, current_generation + 1, generations)
+	return generations
+

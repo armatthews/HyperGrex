@@ -66,7 +66,7 @@ class NonTerminalNode:
 				
 
 	def __str__(self):
-		return '(' + self.label + ' ' + ' '.join(str(child) for child in self.children) + ')'
+		return '(' + self.label.encode('utf-8') + ' ' + ' '.join(str(child) for child in self.children) + ')'
 
 	def __repr__(self):
 		return str(self)
@@ -84,7 +84,7 @@ class TerminalNode:
 		return TerminalNode(s)
 
 	def __str__(self):
-		return self.word
+		return self.word.encode('utf-8')
 
 	def __repr__(self):
 		return str(self)
