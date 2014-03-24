@@ -265,8 +265,8 @@ def minimize_alignments(s2t, t2s, source_root, target_root):
 		span_size = node.span.end - node.span.start
 		generation = target_generations[node]
 		return (-type_match, span_size, -generation)
-	source_generations = compute_generations(source_root.start, source_root)
-	target_generations = compute_generations(target_root.start, target_root)
+	source_generations = compute_generations(source_root)
+	target_generations = compute_generations(target_root)
 	
 	for source_node, target_nodes in sorted(s2t.items(), key=lambda (node, _):source_generations[node], reverse=True):
 		if len(target_nodes) == 0:
@@ -312,7 +312,7 @@ def minimize_alignments_helper(source_node, s2t, t2s, target_generations, source
 
 def minimize_alignments2(source_root, target_root, s2t, t2s):
 	#source_generations = compute_generations(source_root.start, source_root)
-	target_generations = compute_generations(target_root.start, target_root)
+	target_generations = compute_generations(target_root)
 	visited_nodes = set()
 	taken_target_nodes = set()
 	minimize_alignments_helper(source_root.start, s2t, t2s, target_generations, source_root, taken_target_nodes, visited_nodes)
