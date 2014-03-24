@@ -189,11 +189,11 @@ def enumerate_subsets(items):
 
 # Computes a dictionary whos keys are nodes in a hypergraph, and whose keys
 # are integers, representing distance from the root of the hypergraph.
-def compute_generations(node, root, current_generation=0, generations={}):
-	if node not in generations or current_generation < generations[node]:
-		generations[node] = current_generation
-	for edge in node.get_child_edges(root):
-		for child in edge.tails:
-				compute_generations(child, root, current_generation + 1, generations)
+def compute_generations(root):
+	generations = {}
+	for node in reversed(root.topsort()):
+		if len(root.tail_index[node]) == 0:
+			generations[node] = 0
+		else:
+			generations[node] = min(generations[head] for head in [edge.head for edge in root.tail_index[node]]) + 1
 	return generations
-
