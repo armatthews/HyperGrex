@@ -192,8 +192,8 @@ def enumerate_subsets(items):
 def compute_generations(node, root, current_generation=0, generations={}):
 	if node not in generations or current_generation < generations[node]:
 		generations[node] = current_generation
-	for children in node.get_child_sets(root):
-		for child in children:
+	for edge in node.get_child_edges(root):
+		for child in edge.tails:
 				compute_generations(child, root, current_generation + 1, generations)
 	return generations
 
