@@ -4,7 +4,7 @@ import math
 import heapq
 from tree import TreeNode, NonTerminalNode, TerminalNode
 from collections import defaultdict
-from helpers import computeSpans, Alignment, getSpanMask, compute_generations
+from helpers import computeSpans, Alignment, compute_generations
 from hypergraph import Hypergraph
 from itertools import izip
 
@@ -42,7 +42,7 @@ def read_kbest_tree_file(stream):
 		hypergraphs_to_combine = []
 		total_scores = sum(score for _, score in trees_to_combine)
 		for tree, score in trees_to_combine:
-			computeSpans(tree)
+			computeSpans(tree)	
 			tree_hg = Hypergraph.from_tree(tree, score/total_scores)
 			tree_hg.sanity_check()
 			hypergraphs_to_combine.append(tree_hg)
@@ -250,35 +250,16 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			lhs = '[%s::%s]' % (source_node.label, target_node.label)
 			weight = source_root.weights[source_child_edge] * target_root.weights[target_child_edge]
 			#debug_str = ' ||| '.join([' '.join([node.label for node in source_children]), ' '.join([node.label for node in target_children]), str(source_root.weights[source_child_edge]), str(target_root.weights[target_child_edge])])
-			rule = ' ||| '.join([rule_type, lhs, ' '.join(source_rhs), ' '.join(target_rhs), ' '.join('%d-%d' % link for link in alignments), ' '.join(node_types), str(weight)])
+
+			parts = [rule_type, lhs, ' '.join(source_rhs), ' '.join(target_rhs), ' '.join('%d-%d' % link for link in alignments), ' '.join(node_types)]
+			if args.kbest_input:
+				parts.append(str(weight))
+			#parts.append(debug_str)
+			rule = ' ||| '.join(parts)
 			rules.append(rule)
 	for rule in rules:
 		print rule.encode('utf-8')
 	sys.stdout.flush()
-
-# Removes non-minimal node alignments from a hypergraph. We define an edge as
-# non-minimal if it skips (i.e. composes over) a node that is
-# node-aligned to something in the opposite tree.
-def minimize_alignments(s2t, t2s, source_root, target_root):
-	def node_key(node):
-		type_match = 1 if source_node.is_terminal(source_root) == node.is_terminal(target_root) else 0
-		span_size = node.span.end - node.span.start
-		generation = target_generations[node]
-		return (-type_match, span_size, -generation)
-	source_generations = compute_generations(source_root)
-	target_generations = compute_generations(target_root)
-	
-	for source_node, target_nodes in sorted(s2t.items(), key=lambda (node, _):source_generations[node], reverse=True):
-		if len(target_nodes) == 0:
-			continue
-		min_span_size = min([target_node.span.end - target_node.span.start for target_node in target_nodes])
-		best_alignment = heapq.nsmallest(1, target_nodes, key=node_key)[0]
-		for target_node in target_nodes.copy():
-			if target_node != best_alignment:
-				s2t[source_node].remove(target_node)
-				t2s[target_node].remove(source_node)
-				if len(t2s[target_node]) == 0:
-					del t2s[target_node]
 
 def find_best_minimal_alignment(node, target_nodes, taken_target_nodes, target_generations):
 	target_nodes = [target_node for target_node in target_nodes if target_node not in taken_target_nodes]
@@ -310,8 +291,10 @@ def minimize_alignments_helper(source_node, s2t, t2s, target_generations, source
 		taken_target_nodes.add(best_alignment)
 	visited_nodes.add(source_node)
 
-def minimize_alignments2(source_root, target_root, s2t, t2s):
-	#source_generations = compute_generations(source_root.start, source_root)
+# Removes non-minimal node alignments from a hypergraph. We define an edge as
+# non-minimal if it skips (i.e. composes over) a node that is
+# node-aligned to something in the opposite tree.
+def minimize_alignments(source_root, target_root, s2t, t2s):
 	target_generations = compute_generations(target_root)
 	visited_nodes = set()
 	taken_target_nodes = set()

@@ -1,49 +1,58 @@
 #coding: utf8
 import sys
 import json
+import Queue
 from tree import TreeNode, NonTerminalNode, TerminalNode
 from collections import defaultdict
 from helpers import computeSpans, Span, enumerate_subsets, compute_generations
 
 class Edge:
-	def __init__(self, head, tails, weight=1.0):
+	def __init__(self, head, tails, is_composed=False):
 		self.head = head
 		self.tails = tails
-		self.weight = weight
+		self.is_composed = is_composed
 
 	def __eq__(self, other):
-		return isinstance(other, Edge) and self.head == other.head and self.tails == other.tails
+		return isinstance(other, Edge) and self.head == other.head and self.tails == other.tails and self.is_composed == other.is_composed
+
+	def __ne__(self, other):
+		return not (self == other)
 
 	def __hash__(self):
-		return hash((self.head, self.tails))
+		return hash((self.head, self.tails, self.is_composed))
 
 	def __repr__(self):
-		return "Edge(%s,%s,%s)" % (repr(self.head), repr(self.tails), repr(self.weight))
+		return "%sEdge(%s,%s)" % ('' if not self.is_composed else 'Composed', repr(self.head), repr(self.tails))
 
 class NodeWithSpan:
-	def __init__(self, label, span, generation, is_terminal=False, is_virtual=False):
+	def __init__(self, label, span, is_terminal=False, is_virtual=False):
 		self.label = label
 		self.span = span
-		self.generation = generation
 		self.is_terminal_flag = is_terminal
 		self.is_virtual = is_virtual
 
 	def __str__(self):
-		return ('%s_%d [%d,%d)' % (self.label, self.generation, self.span.start, self.span.end)).encode('utf-8')
+		return ('%s [%d,%d)' % (self.label, self.span.start, self.span.end)).encode('utf-8')
 
 	def __repr__(self):
-		return 'NodeWithSpan(%s,%s,%s)' % (repr(self.label), repr(self.span), repr(self.generation))
+		return 'NodeWithSpan(%s,%s)' % (repr(self.label), repr(self.span))
 
 	def __eq__(self, other):
-		return isinstance(other, NodeWithSpan) and self.label == other.label and self.span == other.span and self.generation == other.generation and self.is_virtual == other.is_virtual
+		return isinstance(other, NodeWithSpan) and self.label == other.label and self.span == other.span and self.is_terminal_flag == other.is_terminal_flag and self.is_virtual == other.is_virtual
+
+	def __ne__(self, other):
+		return not (self == other)
 
 	def __hash__(self):
-		return hash((self.label, self.span, self.generation, self.is_virtual))
+		return hash((self.label, self.span, self.is_virtual))
 
 	def is_terminal(self, hg):
 		r = (self in hg.nodes) and len(hg.head_index[self]) == 0
 		assert self.is_terminal_flag == r
 		return r
+
+	def get_child_edges(self, hg):
+		return hg.head_index[self]
 
 	def get_child_sets(self, hg):
 		child_sets = hg.head_index[self]
@@ -69,43 +78,48 @@ class Hypergraph:
 		self.start = start
 		self.nodes = set([start])
 		self.edges = set()
+		self.weights = defaultdict(float)
 		self.head_index = defaultdict(set)
 		self.tail_index = defaultdict(set)
 
-	def add(self, e):
+	def add(self, e, weight=1.0):
 		self.nodes.add(e.head)
 		self.nodes.update(e.tails)
-		if e not in self.edges:
-			self.edges.add(e)
-		else:
-			if e.weight != None and e.weight != 0.0:
-				for edge in self.edges:
-					if hash(edge) == hash(e):
-						edge.weight += e.weight
-						break
+		self.edges.add(e)
 		self.head_index[e.head].add(e)
 		for tail in e.tails:
 			self.tail_index[tail].add(e)
+		self.weights[e] += weight
+		#assert self.weights[e] <= 1.0
+
+	def sanity_check(self):
+		for edge in self.edges:
+			assert edge in self.weights
+			assert edge.head in self.nodes
+			assert edge in self.head_index[edge.head]
+			for tail in edge.tails:
+				assert tail in self.nodes
+				assert edge in self.tail_index[tail]
 
 	def combine(self, other):
 		self.nodes.update(other.nodes)
 		for edge in other.edges:
-			self.add(edge)
-		self.head_index.update(other.head_index)
-		self.tail_index.update(other.tail_index)
+			self.add(edge, other.weights[edge])
+		#self.head_index.update(other.head_index)
+		#self.tail_index.update(other.tail_index)
 
 	@staticmethod
-	def from_tree(root, generation=0):
+	def from_tree(root, weight=1.0):
 		if isinstance(root, NonTerminalNode):
-			hg = Hypergraph(NodeWithSpan(root.label, root.span, generation, False))
+			hg = Hypergraph(NodeWithSpan(root.label, root.span, False))
 			child_nodes = []
 			for child in root.children:
-				child_hypergraph = Hypergraph.from_tree(child, generation + 1)
+				child_hypergraph = Hypergraph.from_tree(child, weight)
 				child_nodes.append(child_hypergraph.start)
 				hg.combine(child_hypergraph)
-			hg.add(Edge(hg.start, tuple(child_nodes)))
+			hg.add(Edge(hg.start, tuple(child_nodes)), weight)
 		else:
-			hg = Hypergraph(NodeWithSpan(root.word, root.span, generation, True))
+			hg = Hypergraph(NodeWithSpan(root.word, root.span, True))
 		return hg
 
 	@staticmethod
@@ -142,30 +156,24 @@ class Hypergraph:
 					covered_children = edge.tails[start : start + size]
 					virtual_label = '-'.join(child.label for child in covered_children)
 					virtual_span = Span(covered_children[0].span.start, covered_children[-1].span.end)
-					virtual_node = NodeWithSpan(virtual_label, virtual_span, True)
+					virtual_node = NodeWithSpan(virtual_label, virtual_span, False, True)
+					self.nodes.add(virtual_node)
 					virtual_tails = edge.tails[:start] + (virtual_node,) + edge.tails[start + size:]
 					virtual_edge1 = Edge(edge.head, virtual_tails)
 					virtual_edge2 = Edge(virtual_node, covered_children)
-					self.nodes.add(virtual_node)
-					virtual_edges.append(virtual_edge1)
-					virtual_edges.append(virtual_edge2)
-		for edge in virtual_edges:	
-			self.add(edge)
+					virtual_edges.append((virtual_edge1, self.weights[edge]))
+					virtual_edges.append((virtual_edge2, self.weights[edge]))
+		for edge, weight in virtual_edges:	
+			self.add(edge, weight)
 
-	def compose_edge(self, edge, max_size, already_composed=set()):
-		if edge in already_composed:
-			return
-		for tail in edge.tails:
-			for child_edge in self.head_index[tail].copy():
-				self.compose_edge(child_edge, max_size, already_composed)
-
+	def compose_edge(self, edge, max_size):
 		tail_choices = []
 		for tail in edge.tails:
 			choices = []
-			choices.append((tail,))
+			choices.append(((tail,), 1.0))
 			for child_edge in self.head_index[tail]:
 				if len(child_edge.tails) <= max_size - len(edge.tails) + 1:
-					choices.append(child_edge.tails)
+					choices.append((child_edge.tails, self.weights[child_edge]))
 			tail_choices.append(choices)
 
 		if len(tail_choices) > max_size:
@@ -173,20 +181,21 @@ class Hypergraph:
 
 		for chosen_tails in enumerate_subsets(tail_choices):
 			new_tails = []
-			for tail in chosen_tails:
+			new_weight = self.weights[edge]
+			for tail, weight in chosen_tails:
 				assert len(tail) >= 1
 				new_tails += tail
+				new_weight *= weight
 
 			if len(new_tails) <= max_size:
-				new_edge = Edge(edge.head, tuple(new_tails))
-				if new_edge not in self.edges:
-					self.add(new_edge)
-		already_composed.add(edge)
+				new_edge = Edge(edge.head, tuple(new_tails), True)
+				if edge.tails != new_edge.tails:	
+					self.add(new_edge, new_weight)		
 		
-	def add_composed_edges(self, max_size):	
-		composed_edges = set()
-		for edge in self.head_index[self.start].copy():
-			self.compose_edge(edge, max_size)
+	def add_composed_edges(self, max_size):
+		for node in self.topsort():
+			for edge in self.head_index[node].copy():
+				self.compose_edge(edge, max_size)
 
 	def covering_sets(self, i, j, nodes_by_start):
 		r = set()
@@ -200,42 +209,48 @@ class Hypergraph:
 					r.add(tuple([node] + list(tail)))
 		return r
 
-	def add_composed_edges2(self, max_size):
-		sentence_length = len(self.start.find_terminals(self))
-		nodes_by_span = defaultdict(set)
-		nodes_by_start = defaultdict(set)
-		generation = compute_generations(self.start, self)
-		for node in self.nodes:
-			nodes_by_span[node.span].add(node)
-			nodes_by_start[node.span.start].add(node)
+	def topsort(self):
+		sorted_nodes = []
+		terminals = Queue.Queue()
+		removed_edges = set()
 
-		for i in range(0, sentence_length):
-			for j in range(i + 1, sentence_length + 1):
-				if len(nodes_by_span[Span(i, j)]) == 0:
-					continue
-				for covering_set in self.covering_sets(i, j, nodes_by_start):
-					for head in nodes_by_span[Span(i, j)]:
-						valid = True
-						for tail in covering_set:
-							if generation[tail] <= generation[head]:
-								valid = False
-								break
-						if valid:
-							new_edge = Edge(head, tuple(covering_set))
-							if new_edge not in self.edges:
-								self.add(new_edge)
+		for node in self.nodes:
+			if node.is_terminal(self):
+				terminals.put(node)
+
+		while not terminals.empty():
+			n = terminals.get()
+			sorted_nodes.append(n)
+			for edge in [edge for edge in self.tail_index[n] if edge not in removed_edges]:
+				m = edge.head
+				if len([tail for tail in edge.tails if tail not in sorted_nodes]) == 0:
+					removed_edges.add(edge)
+				if len([edge for edge in self.head_index[m] if edge not in removed_edges]) == 0:
+					terminals.put(m)
+
+		if len([edge for edge in self.edges if edge not in removed_edges]) > 0:
+			raise Exception('Invalid attempt to topsort a hypergraph with cycles')
+		else:
+			assert len(self.nodes) == len(sorted_nodes)
+			return sorted_nodes
+
 
 if __name__ == "__main__":
 	s = u'(S (NP (DT le) (JJ petit) (NN garçon)) (VP (VB a) (VBN marché) (PP (P à) (NP (DT l\') (NN école)))) (. .))'
 	tree = TreeNode.from_string(s)
 	computeSpans(tree)
 	hg = Hypergraph.from_tree(tree)
+	hg.sanity_check()
 	print 'HG has %d nodes and %d edges' % (len(hg.nodes), len(hg.edges))
+	for node in hg.topsort():
+		print node
+	sys.exit(0)
 	#print hg.to_json()
 	hg.add_virtual_nodes(2, False)
+	hg.sanity_check()
 	print 'HG has %d nodes and %d edges' % (len(hg.nodes), len(hg.edges))
 	#print hg.to_json()
 	hg.add_composed_edges(5)
+	hg.sanity_check()
 	print 'HG has %d nodes and %d edges' % (len(hg.nodes), len(hg.edges))
 	#print hg.to_json()
-
