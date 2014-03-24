@@ -32,7 +32,10 @@ class NodeWithSpan:
 		self.is_virtual = is_virtual
 
 	def __str__(self):
-		return ('%s [%d,%d)' % (self.label, self.span.start, self.span.end)).encode('utf-8')
+		if not self.is_terminal_flag:
+			return ('%s [%d,%d)' % (self.label, self.span.start, self.span.end)).encode('utf-8')
+		else:
+			return ('%s' % (self.label)).encode('utf-8')
 
 	def __repr__(self):
 		return 'NodeWithSpan(%s,%s)' % (repr(self.label), repr(self.span))
@@ -83,6 +86,7 @@ class Hypergraph:
 		self.tail_index = defaultdict(set)
 
 	def add(self, e, weight=1.0):
+		assert weight >= 0.0 and weight <= 1.0
 		self.nodes.add(e.head)
 		self.nodes.update(e.tails)
 		self.edges.add(e)
@@ -90,7 +94,9 @@ class Hypergraph:
 		for tail in e.tails:
 			self.tail_index[tail].add(e)
 		self.weights[e] += weight
-		#assert self.weights[e] <= 1.0
+		assert self.weights[e] >= 0.0 and self.weights[e] <= 1.0001
+		if self.weights[e] > 1.0:
+			self.weights[e] = 1.0
 
 	def sanity_check(self):
 		for edge in self.edges:
@@ -163,7 +169,8 @@ class Hypergraph:
 					virtual_edge2 = Edge(virtual_node, covered_children)
 					virtual_edges.append((virtual_edge1, self.weights[edge]))
 					virtual_edges.append((virtual_edge2, self.weights[edge]))
-		for edge, weight in virtual_edges:	
+
+		for edge, weight in virtual_edges:
 			self.add(edge, weight)
 
 	def compose_edge(self, edge, max_size):
@@ -171,9 +178,10 @@ class Hypergraph:
 		for tail in edge.tails:
 			choices = []
 			choices.append(((tail,), 1.0))
-			for child_edge in self.head_index[tail]:
-				if len(child_edge.tails) <= max_size - len(edge.tails) + 1:
-					choices.append((child_edge.tails, self.weights[child_edge]))
+			if not tail.is_virtual:
+				for child_edge in self.head_index[tail]:
+					if len(child_edge.tails) <= max_size - len(edge.tails) + 1:
+						choices.append((child_edge.tails, self.weights[child_edge]))
 			tail_choices.append(choices)
 
 		if len(tail_choices) > max_size:
@@ -189,7 +197,7 @@ class Hypergraph:
 
 			if len(new_tails) <= max_size:
 				new_edge = Edge(edge.head, tuple(new_tails), True)
-				if edge.tails != new_edge.tails:	
+				if edge.tails != new_edge.tails:
 					self.add(new_edge, new_weight)		
 		
 	def add_composed_edges(self, max_size):
@@ -244,7 +252,6 @@ if __name__ == "__main__":
 	print 'HG has %d nodes and %d edges' % (len(hg.nodes), len(hg.edges))
 	for node in hg.topsort():
 		print node
-	sys.exit(0)
 	#print hg.to_json()
 	hg.add_virtual_nodes(2, False)
 	hg.sanity_check()

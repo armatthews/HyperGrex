@@ -66,6 +66,8 @@ def read_kbest_tree_file(stream):
 			continue
 		# TODO: It's as of yet unknown what Berkeley does in a kbest
 		#       list when its best tree is (())
+		if line.startswith('Don\'t have a'):
+			continue
 		score, line = line.split('\t')
 		score = math.exp(float(score))
 
