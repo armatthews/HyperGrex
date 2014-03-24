@@ -35,6 +35,24 @@ def read_kbest_tree_file(stream):
 	# (empty line)
 	# Note the blank line after each seentence's k-best list
 	# and the extra parentheses that need stripped
+
+	def combine_trees(trees_to_combine):
+		if len(trees_to_combine) == 0:
+			return None
+		hypergraphs_to_combine = []
+		total_scores = sum(score for _, score in trees_to_combine)
+		for tree, score in trees_to_combine:
+			computeSpans(tree)
+			tree_hg = Hypergraph.from_tree(tree, score/total_scores)
+			tree_hg.sanity_check()
+			hypergraphs_to_combine.append(tree_hg)
+
+		final_hypergraph = hypergraphs_to_combine[0]
+		for hypergraph in hypergraphs_to_combine[1:]:
+			final_hypergraph.combine(hypergraph)
+		return final_hypergraph
+
+	trees_to_combine = []
 	hg = None
 	while True:
 		line = stream.readline()
@@ -43,8 +61,8 @@ def read_kbest_tree_file(stream):
 
 		line = line.decode('utf-8').strip()
 		if not line:
-			yield hg
-			hg = None
+			yield combine_trees(trees_to_combine)
+			trees_to_combine = []
 			continue
 		# TODO: It's as of yet unknown what Berkeley does in a kbest
 		#       list when its best tree is (())
@@ -58,16 +76,10 @@ def read_kbest_tree_file(stream):
 		line = line[2:-2]
 
 		tree = TreeNode.from_string(line)
-		computeSpans(tree)
-		tree_hg = Hypergraph.from_tree(tree)
+		trees_to_combine.append((tree, score))
 
-		if hg == None:
-			hg = tree_hg
-		else:
-			hg.combine(tree_hg)
-	if hg is not None:
-		yield hg
-			
+	if len(trees_to_combine) > 0:
+		yield combine_trees(trees_to_combine)
 
 # Reads the next line from a file stream representing alignments.
 # TODO: Allow this to add probabilities to alignment links.
@@ -107,9 +119,16 @@ def are_aligned(source_node, target_node, source_terminals, target_terminals, s2
 
 # Extracts all available rules from the node pair source_node and target_node
 def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments, minimal_only):
-	rules = set()
-	for source_children in source_node.get_child_sets(source_root):
-		for target_children in target_node.get_child_sets(target_root):
+	rules = list()
+	for source_child_edge in source_node.get_child_edges(source_root):
+		source_children = source_child_edge.tails
+		source_nonterminal_count = len([node for node in source_children if not node.is_terminal(source_root)])
+		for target_child_edge in target_node.get_child_edges(target_root):
+			target_children = target_child_edge.tails
+			target_nonterminal_count = len([node for node in target_children if not node.is_terminal(target_root)])
+			if source_nonterminal_count != target_nonterminal_count:
+				continue
+
 			# work out which of the source_node's children correspond to which of the target_node's
 			child_alignments = []
 			for source_child_node in source_children:
@@ -130,7 +149,7 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			s2t_rule_part_map = {}
 			t2s_rule_part_map = {}
 			unused_target_children = list(target_children)
-			non_minimal=False
+			non_minimal = False
 			for i in range(len(source_children)):
 				assert len(child_alignments[i]) in [0, 1]
 				if len(child_alignments[i]) == 1:
@@ -147,13 +166,19 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 						index += 1
 				else:	
 					source_parts += source_terminals[source_children[i].span.start : source_children[i].span.end]
-					non_minimal = True
+					if not source_children[i].is_terminal(source_root):
+						non_minimal = True
 			for node in unused_target_children:
 				target_parts += target_terminals[node.span.start : node.span.end]
-				non_minimal = True
+				if not node.is_terminal(target_root):
+					non_minimal = True
 
 			if minimal_only and non_minimal:
 				continue
+
+			if non_minimal:
+				continue
+
 			if len(source_parts) > max_rule_size or len(target_parts) > max_rule_size:
 				continue
 			# sort the RHS parts, as the NTs and Terminals are in there intermixed now
@@ -223,8 +248,10 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			else:
 				rule_type = 'G'
 			lhs = '[%s::%s]' % (source_node.label, target_node.label)
-			rule = ' ||| '.join([rule_type, lhs, ' '.join(source_rhs), ' '.join(target_rhs), ' '.join('%d-%d' % link for link in alignments), ' '.join(node_types)])
-			rules.add(rule)
+			weight = source_root.weights[source_child_edge] * target_root.weights[target_child_edge]
+			#debug_str = ' ||| '.join([' '.join([node.label for node in source_children]), ' '.join([node.label for node in target_children]), str(source_root.weights[source_child_edge]), str(target_root.weights[target_child_edge])])
+			rule = ' ||| '.join([rule_type, lhs, ' '.join(source_rhs), ' '.join(target_rhs), ' '.join('%d-%d' % link for link in alignments), ' '.join(node_types), str(weight)])
+			rules.append(rule)
 	for rule in rules:
 		print rule.encode('utf-8')
 	sys.stdout.flush()
@@ -324,12 +351,16 @@ def handle_sentence(source_tree, target_tree, alignment):
 						s2t_node_alignments[s_node].add(t_node)
 						t2s_node_alignments[t_node].add(s_node)
 
+		# The roots of the two trees are always node-aligned, even when there are no alignment links
+		s2t_node_alignments[source_tree.start].add(target_tree.start)
+		t2s_node_alignments[target_tree.start].add(source_tree.start)
+
 		if args.minimal_rules:
 			#minimize_alignments(s2t_node_alignments, t2s_node_alignments, source_tree, target_tree)
 			#minimize_alignments(t2s_node_alignments, s2t_node_alignments, target_tree, source_tree)	
 			minimize_alignments2(source_tree, target_tree, s2t_node_alignments, t2s_node_alignments)
 			minimize_alignments2(target_tree, source_tree, t2s_node_alignments, s2t_node_alignments)
-	
+
 		# Finally extract rules
 		for source_node, target_nodes in s2t_node_alignments.copy().iteritems():
 			for target_node in target_nodes:
