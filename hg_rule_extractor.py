@@ -69,6 +69,8 @@ def read_kbest_tree_file(stream):
 		if line.startswith('Don\'t have a'):
 			continue
 		score, line = line.split('\t')
+		if score == '-Infinity' and line == '(())':
+			continue
 		score = math.exp(float(score))
 
 		# Strip the extra parens
@@ -375,6 +377,9 @@ if __name__ == "__main__":
 		# Can happen if Berkeley gives borked trees	
 		if source_tree == None or target_tree == None:
 			continue
-		handle_sentence(source_tree, target_tree, alignment)
+		try:
+			handle_sentence(source_tree, target_tree, alignment)
+		except:
+			pass
 		sys.stdout.flush()
 		sentence_number += 1
