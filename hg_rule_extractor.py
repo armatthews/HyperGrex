@@ -8,30 +8,19 @@ from helpers import computeSpans, Alignment, compute_generations
 from hypergraph import Hypergraph
 from itertools import izip
 
-# Reads the next line from a file stream representing input trees.
-# TODO: Allow this to read in Hypergraphs or Berkeley k-best lists
 def read_tree_file(stream):
-	while True:
-		line = stream.readline()
-		if not line:
-			break
-		line = line.decode('utf-8').strip()
-		# Sometimes Berkeley Parser likes to given broken trees
-		if line == '(())':
-			yield None
-			continue
-
-		# Otherwise, turn the string into a tree, and then into a hypergraph
-		tree = TreeNode.from_string(line)
-		computeSpans(tree)
-		hg = Hypergraph.from_tree(tree)
-		yield hg
-
-def read_kbest_tree_file(stream):
-	# Input format is
-	# for each sentence:
-	# logprob1	( tree1 )
-	# logprob2	( tree2 )
+	# Input format is one of these for each sentence:
+	# Format 1 (just 1-best trees):
+	# tree1
+	# Format 2:
+	# log p(tree1 | sent)	( tree1 )
+	# log p(tree2 | sent)	( tree2 )
+	# ...
+	# (empty line)
+	# Format 3:
+	# log p(sent)	log p(tree1, sent)	( tree1 )
+	# log p(sent)	log p(tree2, sent)	( tree2 )
+	# ...
 	# (empty line)
 	# Note the blank line after each seentence's k-best list
 	# and the extra parentheses that need stripped
@@ -42,8 +31,8 @@ def read_kbest_tree_file(stream):
 		hypergraphs_to_combine = []
 		total_scores = sum(score for _, score in trees_to_combine)
 		for tree, score in trees_to_combine:
-			computeSpans(tree)	
-			tree_hg = Hypergraph.from_tree(tree, score/total_scores)
+			computeSpans(tree)
+			tree_hg = Hypergraph.from_tree(tree, score/total_scores if total_scores != 0.0 else 1.0 / len(trees_to_combine))
 			tree_hg.sanity_check()
 			hypergraphs_to_combine.append(tree_hg)
 
@@ -54,6 +43,7 @@ def read_kbest_tree_file(stream):
 
 	trees_to_combine = []
 	hg = None
+	single_line_mode = False
 	while True:
 		line = stream.readline()
 		if not line:
@@ -64,23 +54,34 @@ def read_kbest_tree_file(stream):
 			yield combine_trees(trees_to_combine)
 			trees_to_combine = []
 			continue
-		# TODO: It's as of yet unknown what Berkeley does in a kbest
-		#       list when its best tree is (())
 		if line.startswith('Don\'t have a'):
 			continue
-		score, line = line.split('\t')
-		if score == '-Infinity' and line == '(())':
+		
+		parts = line.split('\t')
+		if len(parts) == 1:
+			score = 0.0
+			line, = parts
+			single_line_mode = True
+		elif len(parts) == 2:
+			score, line = parts
+			score = float(score)
+		else:
+			sent_prob, joint_prob, line = parts
+			score = float(joint_prob) - float(sent_prob)
+		if score == '-Infinity' or line == '(())':
 			continue
-		score = math.exp(float(score))
+		score = math.exp(score)
 
 		# Strip the extra parens
 		# TODO: What if the trees have different root nodes?
-		assert line.startswith('( (')
-		assert line.endswith(') )')
-		line = line[2:-2]
+		if line.startswith('( (') and line.endswith(') )'):
+			line = line[2:-2]
 
 		tree = TreeNode.from_string(line)
 		trees_to_combine.append((tree, score))
+		if single_line_mode:
+			yield combine_trees(trees_to_combine)
+			trees_to_combine = []
 
 	if len(trees_to_combine) > 0:
 		yield combine_trees(trees_to_combine)
@@ -256,8 +257,8 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			#debug_str = ' ||| '.join([' '.join([node.label for node in source_children]), ' '.join([node.label for node in target_children]), str(source_root.weights[source_child_edge]), str(target_root.weights[target_child_edge])])
 
 			parts = [rule_type, lhs, ' '.join(source_rhs), ' '.join(target_rhs), ' '.join('%d-%d' % link for link in alignments), ' '.join(node_types)]
-			if args.kbest_input:
-				parts.append(str(weight))
+			if not args.suppress_counts:
+				parts.append('1.0 ' + str(weight))
 			#parts.append(debug_str)
 			rule = ' ||| '.join(parts)
 			rules.append(rule)
@@ -343,8 +344,6 @@ def handle_sentence(source_tree, target_tree, alignment):
 		t2s_node_alignments[target_tree.start].add(source_tree.start)
 
 		if args.minimal_rules:
-			#minimize_alignments(s2t_node_alignments, t2s_node_alignments, source_tree, target_tree)
-			#minimize_alignments(t2s_node_alignments, s2t_node_alignments, target_tree, source_tree)	
 			minimize_alignments2(source_tree, target_tree, s2t_node_alignments, t2s_node_alignments)
 			minimize_alignments2(target_tree, source_tree, t2s_node_alignments, s2t_node_alignments)
 
@@ -360,7 +359,7 @@ if __name__ == "__main__":
 	parser.add_argument('source_trees')
         parser.add_argument('target_trees')
         parser.add_argument('alignments')
-        parser.add_argument('--kbest_input', '-k', action='store_true', help='Assume the source tree input file is a kbest list')
+	parser.add_argument('--suppress_counts', action='store_true', help='Emulate old rule extractor by hiding the count field(s)')
         parser.add_argument('--virtual_size', '-v', type=int, default=1, help='Maximum number of components in a virtual node')
         parser.add_argument('--minimal_rules', '-m', action='store_true', help='Only extract minimal rules')
         parser.add_argument('--max_rule_size', '-s', type=int, default=5, help='Maximum number of parts (terminal or non-terminal) in the RHS of a rule')
@@ -371,15 +370,16 @@ if __name__ == "__main__":
 	alignment_file = open(args.alignments)
 
 	sentence_number = 1
-	read_tree_file_func = read_kbest_tree_file if args.kbest_input else read_tree_file
-	for source_tree, target_tree, alignment in izip(read_tree_file_func(source_tree_file), read_tree_file_func(target_tree_file), read_alignment_file(alignment_file)):
-		print 'Sentence', sentence_number
+	for source_tree, target_tree, alignment in izip(read_tree_file(source_tree_file), read_tree_file(target_tree_file), read_alignment_file(alignment_file)):
+		print 'Sentence', sentence_number	
 		# Can happen if Berkeley gives borked trees	
 		if source_tree == None or target_tree == None:
-			continue
-		try:
-			handle_sentence(source_tree, target_tree, alignment)
-		except:
 			pass
+		else:
+			try:
+				handle_sentence(source_tree, target_tree, alignment)
+			except Exception as e:
+			#	print >>sys.stderr, e
+				pass
 		sys.stdout.flush()
 		sentence_number += 1
