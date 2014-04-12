@@ -69,16 +69,19 @@ def read_tree_file(stream):
 			sent_prob, joint_prob, line = parts
 			score = float(joint_prob) - float(sent_prob)
 		if score == '-Infinity' or line == '(())':
-			continue
-		score = math.exp(score)
+			#continue
+			pass
+		else:
+			score = math.exp(score)
 
-		# Strip the extra parens
-		# TODO: What if the trees have different root nodes?
-		if line.startswith('( (') and line.endswith(') )'):
-			line = line[2:-2]
+			# Strip the extra parens
+			# TODO: What if the trees have different root nodes?
+			if line.startswith('( (') and line.endswith(') )'):
+				line = line[2:-2]
 
-		tree = TreeNode.from_string(line)
-		trees_to_combine.append((tree, score))
+			tree = TreeNode.from_string(line)
+			trees_to_combine.append((tree, score))
+
 		if single_line_mode:
 			yield combine_trees(trees_to_combine)
 			trees_to_combine = []
@@ -177,9 +180,6 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 				target_parts += target_terminals[node.span.start : node.span.end]
 				if not node.is_terminal(target_root):
 					non_minimal = True
-
-			if minimal_only and non_minimal:
-				continue
 
 			if non_minimal:
 				continue
@@ -344,8 +344,8 @@ def handle_sentence(source_tree, target_tree, alignment):
 		t2s_node_alignments[target_tree.start].add(source_tree.start)
 
 		if args.minimal_rules:
-			minimize_alignments2(source_tree, target_tree, s2t_node_alignments, t2s_node_alignments)
-			minimize_alignments2(target_tree, source_tree, t2s_node_alignments, s2t_node_alignments)
+			minimize_alignments(source_tree, target_tree, s2t_node_alignments, t2s_node_alignments)
+			minimize_alignments(target_tree, source_tree, t2s_node_alignments, s2t_node_alignments)
 
 		# Finally extract rules
 		for source_node, target_nodes in s2t_node_alignments.copy().iteritems():
@@ -378,6 +378,7 @@ if __name__ == "__main__":
 		else:
 			try:
 				handle_sentence(source_tree, target_tree, alignment)
+				pass
 			except Exception as e:
 			#	print >>sys.stderr, e
 				pass

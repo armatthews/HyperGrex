@@ -77,7 +77,7 @@ class TerminalNode:
 
 	@staticmethod
 	def from_string(s):
-		s = s.strip()
+		s = s.strip()		
 		assert '(' not in s
 		assert ')' not in s
 		assert ' ' not in s

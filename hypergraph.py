@@ -85,6 +85,9 @@ class Hypergraph:
 		self.head_index = defaultdict(set)
 		self.tail_index = defaultdict(set)
 
+	def __str__(self):
+		return ' '.join(str(term) for term in self.start.find_terminals(self))
+
 	def add(self, e, weight=1.0):
 		assert weight >= 0.0 and weight <= 1.0
 		self.nodes.add(e.head)
