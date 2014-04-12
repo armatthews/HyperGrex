@@ -8,42 +8,84 @@ from helpers import computeSpans, Alignment, compute_generations
 from hypergraph import Hypergraph
 from itertools import izip
 
+# Turns a line of input into a hypergraph.
+# Returns a hypergraph, a log weight to be used when combining this HG with others,
+# and a boolean that indicates whether this tree is one of a k-best list.
+# Returns None on error, including some quirky cases caused by Berkeley parser.
+# Input format is one of these for each sentence:
+# Format 1 (just 1-best trees):
+# tree1
+# Format 2:
+# log p(tree1 | sent)	( tree1 )
+# log p(tree2 | sent)	( tree2 )
+# ...
+# (empty line)
+# Format 3:
+# log p(sent)	log p(tree1, sent)	( tree1 )
+# log p(sent)	log p(tree2, sent)	( tree2 )
+# ...
+# (empty line)
+# Note the blank line after each seentence's k-best list
+# and the extra parentheses that need stripped
+
+def hypergraph_from_line(line):
+	line = line.strip()
+	# Berkeley parser will output lines like
+	# "Don't have a 7-best tree" when you ask it
+	# for 10 best, but it only has 6.
+	if line.startswith('Don\'t have a'):
+		return None
+
+	is_one_of_kbest = True
+	parts = line.split('\t')
+	if len(parts) == 1:
+		score = 0.0
+		line, = parts
+		is_one_of_kbest = False
+	elif len(parts) == 2:
+		score, line = parts
+		score = float(score)
+	else:
+		sent_prob, joint_prob, line = parts
+		score = float(joint_prob) - float(sent_prob)
+
+	if score == '-Infinity' or line == '(())':
+		return None
+
+	score = math.exp(score)
+	# Strip the extra parens
+	# TODO: What if the trees have different root nodes?
+	if line.startswith('( (') and line.endswith(') )'):
+		line = line[2:-2]
+
+	tree = TreeNode.from_string(line)
+	return tree, score, is_one_of_kbest
+
+# Input is a list of (tree, weight) pairs.
+# Weights are normalized to sum to 1, then the trees are combined into a single hypergraph.
+def combine_trees(trees_to_combine):
+	if len(trees_to_combine) == 0:
+		return None
+	hypergraphs_to_combine = []
+	total_scores = sum(score for _, score in trees_to_combine)
+	for tree, score in trees_to_combine:
+		if total_scores != 0.0:
+			score = score / total_scores
+		else:
+			score = 1.0 / len(trees_to_combine)
+		computeSpans(tree)
+		tree_hg = Hypergraph.from_tree(tree, score)
+		tree_hg.sanity_check()
+		hypergraphs_to_combine.append(tree_hg)
+
+	final_hypergraph = hypergraphs_to_combine[0]
+	for hypergraph in hypergraphs_to_combine[1:]:
+		final_hypergraph.combine(hypergraph)
+	return final_hypergraph
+
+
 def read_tree_file(stream):
-	# Input format is one of these for each sentence:
-	# Format 1 (just 1-best trees):
-	# tree1
-	# Format 2:
-	# log p(tree1 | sent)	( tree1 )
-	# log p(tree2 | sent)	( tree2 )
-	# ...
-	# (empty line)
-	# Format 3:
-	# log p(sent)	log p(tree1, sent)	( tree1 )
-	# log p(sent)	log p(tree2, sent)	( tree2 )
-	# ...
-	# (empty line)
-	# Note the blank line after each seentence's k-best list
-	# and the extra parentheses that need stripped
-
-	def combine_trees(trees_to_combine):
-		if len(trees_to_combine) == 0:
-			return None
-		hypergraphs_to_combine = []
-		total_scores = sum(score for _, score in trees_to_combine)
-		for tree, score in trees_to_combine:
-			computeSpans(tree)
-			tree_hg = Hypergraph.from_tree(tree, score/total_scores if total_scores != 0.0 else 1.0 / len(trees_to_combine))
-			tree_hg.sanity_check()
-			hypergraphs_to_combine.append(tree_hg)
-
-		final_hypergraph = hypergraphs_to_combine[0]
-		for hypergraph in hypergraphs_to_combine[1:]:
-			final_hypergraph.combine(hypergraph)
-		return final_hypergraph
-
 	trees_to_combine = []
-	hg = None
-	single_line_mode = False
 	while True:
 		line = stream.readline()
 		if not line:
@@ -54,35 +96,16 @@ def read_tree_file(stream):
 			yield combine_trees(trees_to_combine)
 			trees_to_combine = []
 			continue
-		if line.startswith('Don\'t have a'):
+
+		parts = hypergraph_from_line(line)
+		if parts == None:
 			continue
-		
-		parts = line.split('\t')
-		if len(parts) == 1:
-			score = 0.0
-			line, = parts
-			single_line_mode = True
-		elif len(parts) == 2:
-			score, line = parts
-			score = float(score)
 		else:
-			sent_prob, joint_prob, line = parts
-			score = float(joint_prob) - float(sent_prob)
-		if score == '-Infinity' or line == '(())':
-			#continue
-			pass
-		else:
-			score = math.exp(score)
-
-			# Strip the extra parens
-			# TODO: What if the trees have different root nodes?
-			if line.startswith('( (') and line.endswith(') )'):
-				line = line[2:-2]
-
-			tree = TreeNode.from_string(line)
+			tree, score, can_combine = parts
 			trees_to_combine.append((tree, score))
-
-		if single_line_mode:
+		
+		if not can_combine:
+			assert len(trees_to_combine) == 1
 			yield combine_trees(trees_to_combine)
 			trees_to_combine = []
 
@@ -101,6 +124,10 @@ def read_alignment_file(stream):
 		yield alignment
 
 # Determines whether source_node and target_node are node-aligned.
+# Two nodes are aligned if the alignment links emanating from their terminals
+# align only to terminals of the other, or to NULL.
+# The one exception is if both nodes have no alignment links coming from their
+# terminals at all. In this case the nodes are not considered to be aligned. 
 def are_aligned(source_node, target_node, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
 	source_node_terminals = source_terminals[source_node.span.start : source_node.span.end]
 	target_node_terminals = target_terminals[target_node.span.start : target_node.span.end]
@@ -228,9 +255,9 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			for source in source_parts:
 				if source.is_terminal(source_root):
 					continue
-				target = s2t_rule_part_map[source]
+				target, _ = s2t_rule_part_map[source]	
 				s = 'V' if '-' in source.label else 'O'
-				t = 'V' if '-' in source.label else 'O'
+				t = 'V' if '-' in target.label else 'O'
 				node_types.append(s + t)
 
 			# Calculate the node-to-node and word-to-word alignments within this rule
@@ -267,7 +294,7 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 	sys.stdout.flush()
 
 def find_best_minimal_alignment(node, target_nodes, taken_target_nodes, target_generations):
-	target_nodes = [target_node for target_node in target_nodes if target_node not in taken_target_nodes]
+	target_nodes = [target_node for target_node in target_nodes if target_node not in taken_target_nodes and target_node.is_terminal_flag == node.is_terminal_flag]
 	if len(target_nodes) == 0:
 		return None
 
@@ -308,13 +335,9 @@ def minimize_alignments(source_root, target_root, s2t, t2s):
 # Takes two hypergraphs representing source and target trees, as well as a word
 # alignment, and finds all rules extractable there from.
 def handle_sentence(source_tree, target_tree, alignment):
-		# Add any necessary edges to the tree structures
+		# Add virtual nodes and edges to the tree structures
 		source_tree.add_virtual_nodes(args.virtual_size, False)
 		target_tree.add_virtual_nodes(args.virtual_size, False)
-
-		if not args.minimal_rules:
-			source_tree.add_composed_edges(args.max_rule_size)
-			target_tree.add_composed_edges(args.max_rule_size)
 
 		# Build word alignment maps
 		s2t_word_alignments = defaultdict(list)
@@ -347,6 +370,17 @@ def handle_sentence(source_tree, target_tree, alignment):
 			minimize_alignments(source_tree, target_tree, s2t_node_alignments, t2s_node_alignments)
 			minimize_alignments(target_tree, source_tree, t2s_node_alignments, s2t_node_alignments)
 
+		# Add composed edges to the tree structures
+		if args.minimal_rules:
+			s2t_aligned_nodes = set(node for node, alignments in s2t_node_alignments.iteritems() if len(alignments) > 0)
+			t2s_aligned_nodes = set(node for node, alignments in t2s_node_alignments.iteritems() if len(alignments) > 0)
+			source_tree.add_minimal_composed_edges(args.max_rule_size, s2t_aligned_nodes)
+			target_tree.add_minimal_composed_edges(args.max_rule_size, t2s_aligned_nodes)
+		else:
+			source_tree.add_composed_edges(args.max_rule_size)
+			target_tree.add_composed_edges(args.max_rule_size)
+
+
 		# Finally extract rules
 		for source_node, target_nodes in s2t_node_alignments.copy().iteritems():
 			for target_node in target_nodes:
@@ -363,6 +397,7 @@ if __name__ == "__main__":
         parser.add_argument('--virtual_size', '-v', type=int, default=1, help='Maximum number of components in a virtual node')
         parser.add_argument('--minimal_rules', '-m', action='store_true', help='Only extract minimal rules')
         parser.add_argument('--max_rule_size', '-s', type=int, default=5, help='Maximum number of parts (terminal or non-terminal) in the RHS of a rule')
+        parser.add_argument('--debug', '-d', action='store_true', help='Debug mode')
         args = parser.parse_args()
 
 	source_tree_file = open(args.source_trees)
@@ -376,11 +411,11 @@ if __name__ == "__main__":
 		if source_tree == None or target_tree == None:
 			pass
 		else:
-			try:
+			#try:
 				handle_sentence(source_tree, target_tree, alignment)
 				pass
-			except Exception as e:
-			#	print >>sys.stderr, e
-				pass
+			#except Exception as e:
+			#	if args.debug:
+			#		raise e	
 		sys.stdout.flush()
 		sentence_number += 1
