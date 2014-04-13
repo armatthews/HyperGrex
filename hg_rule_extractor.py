@@ -112,6 +112,14 @@ def read_tree_file(stream):
 	if len(trees_to_combine) > 0:
 		yield combine_trees(trees_to_combine)
 
+def read_string_file(stream):
+	while True:
+		line = stream.readline()
+		if not line:
+			break
+		line = line.decode('utf-8').strip()
+		yield Hypergraph.from_surface_string(line)
+
 # Reads the next line from a file stream representing alignments.
 # TODO: Allow this to add probabilities to alignment links.
 def read_alignment_file(stream):
@@ -397,6 +405,9 @@ if __name__ == "__main__":
         parser.add_argument('--virtual_size', '-v', type=int, default=1, help='Maximum number of components in a virtual node')
         parser.add_argument('--minimal_rules', '-m', action='store_true', help='Only extract minimal rules')
         parser.add_argument('--max_rule_size', '-s', type=int, default=5, help='Maximum number of parts (terminal or non-terminal) in the RHS of a rule')
+	group = parser.add_mutually_exclusive_group()
+        group.add_argument('--s2t', action='store_true', help='String-to-tree mode. Target side file should contain (tokenized) sentences instead of trees.')
+        group.add_argument('--t2s', action='store_true', help='Tree-to-string mode. Source side file should contain (tokenized) sentences instead of trees.')
         parser.add_argument('--debug', '-d', action='store_true', help='Debug mode')
         args = parser.parse_args()
 
@@ -404,8 +415,11 @@ if __name__ == "__main__":
 	target_tree_file = open(args.target_trees)
 	alignment_file = open(args.alignments)
 
+	read_source_file = read_tree_file if not args.s2t else read_string_file
+	read_target_file = read_tree_file if not args.t2s else read_string_file
+
 	sentence_number = 1
-	for source_tree, target_tree, alignment in izip(read_tree_file(source_tree_file), read_tree_file(target_tree_file), read_alignment_file(alignment_file)):
+	for source_tree, target_tree, alignment in izip(read_source_file(source_tree_file), read_target_file(target_tree_file), read_alignment_file(alignment_file)):
 		print 'Sentence', sentence_number	
 		# Can happen if Berkeley gives borked trees	
 		if source_tree == None or target_tree == None:

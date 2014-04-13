@@ -118,6 +118,24 @@ class Hypergraph:
 		#self.tail_index.update(other.tail_index)
 
 	@staticmethod
+	def from_surface_string(string):
+		words = string.strip().split()
+		root_node = NodeWithSpan('ROOT', Span(0, len(words) + 1))
+		x_nodes = tuple(NodeWithSpan('X', Span(i, i + 1)) for i, word in enumerate(words))
+		child_nodes = tuple(NodeWithSpan(word, Span(i, i + 1), True) for i, word in enumerate(words))
+
+		hg = Hypergraph(root_node)
+		hg.nodes.update(x_nodes)
+		hg.nodes.update(child_nodes)
+
+		edge = Edge(root_node, x_nodes)
+		hg.add(edge)
+		for x_node, child_node in zip(x_nodes, child_nodes):
+			edge = Edge(x_node, (child_node,))
+			hg.add(edge)
+		return hg	
+
+	@staticmethod
 	def from_tree(root, weight=1.0):
 		if isinstance(root, NonTerminalNode):
 			hg = Hypergraph(NodeWithSpan(root.label, root.span, False))
