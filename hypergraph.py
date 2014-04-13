@@ -11,6 +11,7 @@ class Edge:
 		self.head = head
 		self.tails = tails
 		self.is_composed = is_composed
+		self.composed_edges = []
 
 	def __eq__(self, other):
 		return isinstance(other, Edge) and self.head == other.head and self.tails == other.tails and self.is_composed == other.is_composed
@@ -50,6 +51,7 @@ class NodeWithSpan:
 		return hash((self.label, self.span, self.is_virtual))
 
 	def is_terminal(self, hg):
+		return self.is_terminal_flag
 		r = (self in hg.nodes) and len(hg.head_index[self]) == 0
 		assert self.is_terminal_flag == r
 		return r
@@ -87,6 +89,28 @@ class Hypergraph:
 
 	def __str__(self):
 		return ' '.join(str(term) for term in self.start.find_terminals(self))
+
+	def to_tree_string_helper(self, node, alternate_labels):
+		children = []
+		assert(len(self.head_index[node]) <= 1)
+		for edge in self.head_index[node]:
+			for tail in edge.tails:
+				children.append(tail)
+
+		label = node.label if node not in alternate_labels else alternate_labels[node]
+		if len(children) > 0:
+			return '(%s %s)' % (label, ' '.join([self.to_tree_string_helper(child, alternate_labels) for child in children]))
+		else:
+			if node.is_terminal_flag:
+				return label
+			else:
+				return '[%s]' % label
+
+	def to_tree_string(self, alternate_labels={}):
+		for node in self.nodes:
+			if len(self.head_index[node]) >= 2:
+				raise Exception('Invalid call to to_tree_str() on a hypergraph not representable by a tree!')
+		return self.to_tree_string_helper(self.start, alternate_labels)
 
 	def add(self, e, weight=1.0):
 		assert weight >= 0.0 and weight <= 1.0
@@ -198,29 +222,33 @@ class Hypergraph:
 		tail_choices = []
 		for tail in edge.tails:
 			choices = []
-			choices.append(((tail,), 1.0))
+			choices.append(((tail,), 1.0, None))
 
 			# Composing through virtual nodes leads to us counting a ton of stuff twice.
 			# Note that composing through virtual nodes will never add any extra edges either.
 			if not tail.is_virtual:
-				for child_edge in self.head_index[tail]:
+				for child_edge in tail.get_child_edges(self):
 					if len(child_edge.tails) <= max_size - len(edge.tails) + 1:
-						choices.append((child_edge.tails, self.weights[child_edge]))
+						choices.append((child_edge.tails, self.weights[child_edge], child_edge))
 			tail_choices.append(choices)
 
 		if len(tail_choices) > max_size:
 			return
 
-		for chosen_tails in enumerate_subsets(tail_choices):
+		for chosen_child_edges in enumerate_subsets(tail_choices):
 			new_tails = []
 			new_weight = self.weights[edge]
-			for tail, weight in chosen_tails:
+			composed_edges = [edge]
+			for tail, weight, internal_edge in chosen_child_edges:
 				assert len(tail) >= 1
 				new_tails += tail
 				new_weight *= weight
+				if internal_edge is not None:
+					composed_edges.append(internal_edge)
 
 			if len(new_tails) <= max_size:
 				new_edge = Edge(edge.head, tuple(new_tails), True)
+				new_edge.composed_edges = composed_edges
 				if edge.tails != new_edge.tails:
 					self.add(new_edge, new_weight)		
 		
@@ -318,6 +346,7 @@ if __name__ == "__main__":
 	hg = Hypergraph.from_tree(tree)
 	hg.sanity_check()
 	print 'HG has %d nodes and %d edges' % (len(hg.nodes), len(hg.edges))
+	print hg.to_tree_string()
 	for node in hg.topsort():
 		print node
 	#print hg.to_json()
@@ -328,4 +357,4 @@ if __name__ == "__main__":
 	hg.add_composed_edges(5)
 	hg.sanity_check()
 	print 'HG has %d nodes and %d edges' % (len(hg.nodes), len(hg.edges))
-	#print hg.to_json()
+	#print hg.to_json()	

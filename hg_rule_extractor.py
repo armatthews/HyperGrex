@@ -160,6 +160,12 @@ def are_aligned(source_node, target_node, source_terminals, target_terminals, s2
 
 	return True
 
+def build_mini_hypergraph(edges):
+	hg = Hypergraph(edges[0].head)
+	for edge in edges:
+		hg.add(edge)	
+	return hg
+
 # Extracts all available rules from the node pair source_node and target_node
 def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments, minimal_only):
 	rules = list()
@@ -289,7 +295,17 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 				rule_type = 'G'
 			lhs = '[%s::%s]' % (source_node.label, target_node.label)
 			weight = source_root.weights[source_child_edge] * target_root.weights[target_child_edge]
+
 			#debug_str = ' ||| '.join([' '.join([node.label for node in source_children]), ' '.join([node.label for node in target_children]), str(source_root.weights[source_child_edge]), str(target_root.weights[target_child_edge])])
+			source_composed_tree = ''
+			if source_child_edge.is_composed:
+				source_composed_tree = build_mini_hypergraph(source_child_edge.composed_edges).to_tree_string()
+			target_composed_tree = ''
+			if target_child_edge.is_composed:
+				target_composed_hg = build_mini_hypergraph(target_child_edge.composed_edges)
+				label_map = {node: str(index) for (node, (_, index)) in t2s_rule_part_map.iteritems()}	
+				target_composed_tree = target_composed_hg.to_tree_string(label_map)
+			#debug_str = ' '.join([str(source_child_edge.is_composed), str(target_child_edge.is_composed)]) + ' ||| ' + (source_composed_tree) + ' ||| ' + target_composed_tree 
 
 			parts = [rule_type, lhs, ' '.join(source_rhs), ' '.join(target_rhs), ' '.join('%d-%d' % link for link in alignments), ' '.join(node_types)]
 			if not args.suppress_counts:
@@ -425,11 +441,12 @@ if __name__ == "__main__":
 		if source_tree == None or target_tree == None:
 			pass
 		else:
-			#try:
+			try:
 				handle_sentence(source_tree, target_tree, alignment)
 				pass
-			#except Exception as e:
-			#	if args.debug:
-			#		raise e	
+			except Exception as e:
+				if args.debug:
+					raise e	
 		sys.stdout.flush()
 		sentence_number += 1
+		break
