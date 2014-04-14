@@ -217,9 +217,13 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			if has_unaligned_nt:
 				continue
 
+			weight = source_root.weights[source_edge] * target_root.weights[target_edge]
 			# At this point, all information defining the rule has been calculated.
 			# All that remains is to output it, which requires turning various bits
 			# of information into string form.
+
+			# Turn the source and target LHS into a string
+			lhs = '[%s::%s]' % (source_edge.head.label, target_edge.head.label)
 
 			# Turn the source and target RHS's into strings
 			source_rhs = []
@@ -253,15 +257,15 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 					is_abstract_target = False
 
 			node_types = []
-			s = 'V' if '-' in source_node.label else 'O'
-			t = 'V' if '-' in target_node.label else 'O'
+			s = 'V' if source_edge.head.is_virtual else 'O'
+			t = 'V' if target_edge.head.is_virtual else 'O'
 			node_types.append(s + t)
 			for source in source_edge.tails:
 				if source.is_terminal(source_root):
 					continue
 				target, _ = s2t_rule_part_map[source]	
-				s = 'V' if '-' in source.label else 'O'
-				t = 'V' if '-' in target.label else 'O'
+				s = 'V' if source.is_virtual else 'O'
+				t = 'V' if target.is_virtual else 'O'
 				node_types.append(s + t)
 
 			# Calculate the node-to-node and word-to-word alignments within this rule
@@ -272,7 +276,9 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 					   target_part in s2t_word_alignments[source_part] or source_part in t2s_word_alignments[target_part]:
 						alignments.append((i, j))
 
-			# output !
+			# Figure out what type of rule this is.
+			# P=phrase pair, G=partially lexicallized, A=fully abstract
+			# TODO: break 'A' into three categories?
 			if is_phrase:
 				rule_type = 'P'
 			elif is_abstract_source and is_abstract_target:
@@ -283,9 +289,7 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 				rule_type = 'A'
 			else:
 				rule_type = 'G'
-			lhs = '[%s::%s]' % (source_node.label, target_node.label)
-			weight = source_root.weights[source_edge] * target_root.weights[target_edge]
-
+			
 			#debug_str = ' ||| '.join([' '.join([node.label for node in source_children]), ' '.join([node.label for node in target_edge.tails]), str(source_root.weights[source_edge]), str(target_root.weights[target_edge])])
 			source_composed_tree = ''
 			if source_edge.is_composed:
