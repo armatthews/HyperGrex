@@ -173,17 +173,27 @@ def build_mini_hypergraph(edges):
 def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments, minimal_only):
 	rules = list()
 	for source_edge in source_node.get_child_edges(source_root):	
+		if len(source_edge.tails) > max_rule_size:
+			continue
 		source_nt_count = len([node for node in source_edge.tails if not node.is_terminal(source_root)])
 		for target_edge in target_node.get_child_edges(target_root):	
+			if len(target_edge.tails) > max_rule_size:
+				continue
 			target_nt_count = len([node for node in target_edge.tails if not node.is_terminal(target_root)])
 			if source_nt_count != target_nt_count:
 				continue
 
 			# work out which of the source_node's children correspond to which of the target_node's
+			# each node should have at most 1 alignment
+			# TODO: We might be able to speed this up by breaking as soon as find one aligned node.
+			# I'm not doing this for now, so that we can assert this condition  and check for correctness
 			child_alignments = []
 			for source_child_node in source_edge.tails:
 				alignments = []
 				source_child_node_alignments = s2t_node_alignments[source_child_node]
+				# We want to intersect s2t_node_alignments[source_child_node] with target_edge.tails
+				# subject to the constraint that each tail's terminal/nt status must match source_child_node's
+				# TODO: This could be rewritten much more cleanly
 				for target_child_node in target_edge.tails:
 					if target_child_node in source_child_node_alignments:
 						if source_child_node.is_terminal(source_root) == target_child_node.is_terminal(target_root):
@@ -194,76 +204,61 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			# index is the number of NT-NT pairs that have been added to the rule so far
 			# the rule_part_maps give, for each NT, what opposite-side NT it corresponds to along with its index
 			index = 1
-			source_parts = []
-			target_parts = []
 			s2t_rule_part_map = {}
 			t2s_rule_part_map = {}
 			unused_target_children = list(target_edge.tails)
-			non_minimal = False
+			has_unaligned_nt = False
 			for i in range(len(source_edge.tails)):
 				assert len(child_alignments[i]) in [0, 1]
 				if len(child_alignments[i]) == 1:
 					s = source_edge.tails[i]
 					t = child_alignments[i][0]
-					source_parts.append(s)
-					target_parts.append(t)
 					unused_target_children.remove(child_alignments[i][0])
-					if s.is_terminal(source_root):
-						pass
-					else:
+					if not s.is_terminal(source_root):
 						s2t_rule_part_map[s] = (t, index)
 						t2s_rule_part_map[t] = (s, index)
 						index += 1
-				else:
-					source_parts += source_terminals[source_edge.tails[i].span.start : source_edge.tails[i].span.end]
-					if not source_edge.tails[i].is_terminal(source_root):
-						non_minimal = True
-			for node in unused_target_children:
-				target_parts += target_terminals[node.span.start : node.span.end]
-				if not node.is_terminal(target_root):
-					non_minimal = True
+				elif not source_edge.tails[i].is_terminal(source_root):
+						has_unaligned_nt = True
+						break
 
-			if non_minimal:
+			if not has_unaligned_nt:
+				for node in unused_target_children:
+					if not node.is_terminal(target_root):
+						has_unaligned_nt = True
+						break
+
+			if has_unaligned_nt:
 				continue
-
-			#assert ' '.join(map(str, source_edge.tails)) == ' '.join(map(str, source_parts))
-			#target_parts = sorted(target_parts, key=lambda node: node.span.start)
-			#assert ' '.join(map(str, target_edge.tails)) == ' '.join(map(str, target_parts))
-
-			if len(source_parts) > max_rule_size or len(target_parts) > max_rule_size:
-				continue
-			# sort the RHS parts, as the NTs and Terminals are in there intermixed now
-			source_parts = sorted(source_parts, key=lambda node: node.span.start)
-			target_parts = sorted(target_parts, key=lambda node: node.span.start)
 
 			# Turn the source and target RHS's into strings
 			source_rhs = []
-			for part in source_parts:
-				if part.is_terminal(source_root):
-					source_rhs.append(part.label)
+			for node in source_edge.tails:
+				if node.is_terminal(source_root):
+					source_rhs.append(node.label)
 				else:
-					target, index = s2t_rule_part_map[part]
-					source_rhs.append('[%s::%s,%d]' % (part.label, target.label, index))
+					target, index = s2t_rule_part_map[node]
+					source_rhs.append('[%s::%s,%d]' % (node.label, target.label, index))
 
 			target_rhs = []
-			for part in target_parts:
-				if part.is_terminal(target_root):
-					target_rhs.append(part.label)
+			for node in target_edge.tails:
+				if node.is_terminal(target_root):
+					target_rhs.append(node.label)
 				else:
-					source, index = t2s_rule_part_map[part]
-					target_rhs.append('[%s::%s,%d]' % (source.label, part.label, index))
+					source, index = t2s_rule_part_map[node]
+					target_rhs.append('[%s::%s,%d]' % (source.label, node.label, index))
 
 			# Work out the rule type
 			is_abstract_source = True
 			is_abstract_target = True
 			is_phrase = True
-			for node in source_parts:
+			for node in source_edge.tails:
 				if node.is_terminal(source_root):
 					is_abstract_source = False
 				else:
 					is_phrase = False
 
-			for node in target_parts:
+			for node in target_edge.tails:
 				if node.is_terminal(target_root):
 					is_abstract_target = False
 
@@ -271,7 +266,7 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			s = 'V' if '-' in source_node.label else 'O'
 			t = 'V' if '-' in target_node.label else 'O'
 			node_types.append(s + t)
-			for source in source_parts:
+			for source in source_edge.tails:
 				if source.is_terminal(source_root):
 					continue
 				target, _ = s2t_rule_part_map[source]	
@@ -281,8 +276,8 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 
 			# Calculate the node-to-node and word-to-word alignments within this rule
 			alignments = []
-			for i, source_part in enumerate(source_parts):
-				for j, target_part in enumerate(target_parts):
+			for i, source_part in enumerate(source_edge.tails):
+				for j, target_part in enumerate(target_edge.tails):
 					if target_part in s2t_node_alignments[source_part] or source_part in t2s_node_alignments[target_part] or \
 					   target_part in s2t_word_alignments[source_part] or source_part in t2s_word_alignments[target_part]:
 						alignments.append((i, j))
@@ -446,12 +441,10 @@ if __name__ == "__main__":
 		if source_tree == None or target_tree == None:
 			pass
 		else:
-			#try:
+			try:
 				handle_sentence(source_tree, target_tree, alignment)
-				pass
-			#except Exception as e:
-			#	if args.debug:
-			#		raise e	
+			except Exception as e:
+				if args.debug:
+					raise
 		sys.stdout.flush()
-		sentence_number += 1
-		break
+		sentence_number += 1	
