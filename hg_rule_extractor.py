@@ -183,22 +183,15 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			if source_nt_count != target_nt_count:
 				continue
 
-			# work out which of the source_node's children correspond to which of the target_node's
-			# each node should have at most 1 alignment
-			# TODO: We might be able to speed this up by breaking as soon as find one aligned node.
-			# I'm not doing this for now, so that we can assert this condition  and check for correctness
+			# Work out which of the source_node's children correspond to which of the target_node's
+			# Note: Each node should have at most 1 alignment
+			target_terminals = set([node for node in target_edge.tails if node.is_terminal(target_root)])
+			target_nonterminals = set([node for node in target_edge.tails if not node.is_terminal(target_root)])
 			child_alignments = []
-			for source_child_node in source_edge.tails:
-				alignments = []
-				source_child_node_alignments = s2t_node_alignments[source_child_node]
-				# We want to intersect s2t_node_alignments[source_child_node] with target_edge.tails
-				# subject to the constraint that each tail's terminal/nt status must match source_child_node's
-				# TODO: This could be rewritten much more cleanly
-				for target_child_node in target_edge.tails:
-					if target_child_node in source_child_node_alignments:
-						if source_child_node.is_terminal(source_root) == target_child_node.is_terminal(target_root):
-							alignments.append(target_child_node)
-				child_alignments.append(alignments)
+			for node in source_edge.tails:	
+				possible_alignments = target_terminals if node.is_terminal(source_root) else target_nonterminals 
+				child_alignments.append(list(possible_alignments & s2t_node_alignments[node]))
+				assert len(child_alignments[-1]) <= 1
 
 			# Build up lists of the parts that make up the source and target RHS
 			# index is the number of NT-NT pairs that have been added to the rule so far
@@ -206,14 +199,12 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			index = 1
 			s2t_rule_part_map = {}
 			t2s_rule_part_map = {}
-			unused_target_children = list(target_edge.tails)
+			unused_target_children = set(target_edge.tails)
 			has_unaligned_nt = False
-			for i in range(len(source_edge.tails)):
-				assert len(child_alignments[i]) in [0, 1]
+			for i, s in enumerate(source_edge.tails):
 				if len(child_alignments[i]) == 1:
-					s = source_edge.tails[i]
 					t = child_alignments[i][0]
-					unused_target_children.remove(child_alignments[i][0])
+					unused_target_children.remove(t)
 					if not s.is_terminal(source_root):
 						s2t_rule_part_map[s] = (t, index)
 						t2s_rule_part_map[t] = (s, index)
@@ -222,14 +213,13 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 						has_unaligned_nt = True
 						break
 
-			if not has_unaligned_nt:
-				for node in unused_target_children:
-					if not node.is_terminal(target_root):
-						has_unaligned_nt = True
-						break
-
+			has_unaligned_nt |= False in [node.is_terminal(target_root) for node in unused_target_children]
 			if has_unaligned_nt:
 				continue
+
+			# At this point, all information defining the rule has been calculated.
+			# All that remains is to output it, which requires turning various bits
+			# of information into string form.
 
 			# Turn the source and target RHS's into strings
 			source_rhs = []
