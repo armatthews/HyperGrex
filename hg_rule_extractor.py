@@ -167,23 +167,24 @@ def build_mini_hypergraph(edges):
 	return hg
 
 # Extracts all available rules from the node pair source_node and target_node
+# Each rule will come from a pair of edges, one with head at source_node and
+# the other with head at target_node.
+# These two edges must have the same number of non-terminal children.
 def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments, minimal_only):
 	rules = list()
-	for source_child_edge in source_node.get_child_edges(source_root):
-		source_children = source_child_edge.tails
-		source_nonterminal_count = len([node for node in source_children if not node.is_terminal(source_root)])
-		for target_child_edge in target_node.get_child_edges(target_root):
-			target_children = target_child_edge.tails
-			target_nonterminal_count = len([node for node in target_children if not node.is_terminal(target_root)])
-			if source_nonterminal_count != target_nonterminal_count:
+	for source_edge in source_node.get_child_edges(source_root):	
+		source_nt_count = len([node for node in source_edge.tails if not node.is_terminal(source_root)])
+		for target_edge in target_node.get_child_edges(target_root):	
+			target_nt_count = len([node for node in target_edge.tails if not node.is_terminal(target_root)])
+			if source_nt_count != target_nt_count:
 				continue
 
 			# work out which of the source_node's children correspond to which of the target_node's
 			child_alignments = []
-			for source_child_node in source_children:
+			for source_child_node in source_edge.tails:
 				alignments = []
 				source_child_node_alignments = s2t_node_alignments[source_child_node]
-				for target_child_node in target_children:
+				for target_child_node in target_edge.tails:
 					if target_child_node in source_child_node_alignments:
 						if source_child_node.is_terminal(source_root) == target_child_node.is_terminal(target_root):
 							alignments.append(target_child_node)
@@ -197,12 +198,12 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			target_parts = []
 			s2t_rule_part_map = {}
 			t2s_rule_part_map = {}
-			unused_target_children = list(target_children)
+			unused_target_children = list(target_edge.tails)
 			non_minimal = False
-			for i in range(len(source_children)):
+			for i in range(len(source_edge.tails)):
 				assert len(child_alignments[i]) in [0, 1]
 				if len(child_alignments[i]) == 1:
-					s = source_children[i]
+					s = source_edge.tails[i]
 					t = child_alignments[i][0]
 					source_parts.append(s)
 					target_parts.append(t)
@@ -213,9 +214,9 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 						s2t_rule_part_map[s] = (t, index)
 						t2s_rule_part_map[t] = (s, index)
 						index += 1
-				else:	
-					source_parts += source_terminals[source_children[i].span.start : source_children[i].span.end]
-					if not source_children[i].is_terminal(source_root):
+				else:
+					source_parts += source_terminals[source_edge.tails[i].span.start : source_edge.tails[i].span.end]
+					if not source_edge.tails[i].is_terminal(source_root):
 						non_minimal = True
 			for node in unused_target_children:
 				target_parts += target_terminals[node.span.start : node.span.end]
@@ -224,6 +225,10 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 
 			if non_minimal:
 				continue
+
+			#assert ' '.join(map(str, source_edge.tails)) == ' '.join(map(str, source_parts))
+			#target_parts = sorted(target_parts, key=lambda node: node.span.start)
+			#assert ' '.join(map(str, target_edge.tails)) == ' '.join(map(str, target_parts))
 
 			if len(source_parts) > max_rule_size or len(target_parts) > max_rule_size:
 				continue
@@ -294,18 +299,18 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			else:
 				rule_type = 'G'
 			lhs = '[%s::%s]' % (source_node.label, target_node.label)
-			weight = source_root.weights[source_child_edge] * target_root.weights[target_child_edge]
+			weight = source_root.weights[source_edge] * target_root.weights[target_edge]
 
-			#debug_str = ' ||| '.join([' '.join([node.label for node in source_children]), ' '.join([node.label for node in target_children]), str(source_root.weights[source_child_edge]), str(target_root.weights[target_child_edge])])
+			#debug_str = ' ||| '.join([' '.join([node.label for node in source_children]), ' '.join([node.label for node in target_edge.tails]), str(source_root.weights[source_edge]), str(target_root.weights[target_edge])])
 			source_composed_tree = ''
-			if source_child_edge.is_composed:
-				source_composed_tree = build_mini_hypergraph(source_child_edge.composed_edges).to_tree_string()
+			if source_edge.is_composed:
+				source_composed_tree = build_mini_hypergraph(source_edge.composed_edges).to_tree_string()
 			target_composed_tree = ''
-			if target_child_edge.is_composed:
-				target_composed_hg = build_mini_hypergraph(target_child_edge.composed_edges)
+			if target_edge.is_composed:
+				target_composed_hg = build_mini_hypergraph(target_edge.composed_edges)
 				label_map = {node: str(index) for (node, (_, index)) in t2s_rule_part_map.iteritems()}	
 				target_composed_tree = target_composed_hg.to_tree_string(label_map)
-			#debug_str = ' '.join([str(source_child_edge.is_composed), str(target_child_edge.is_composed)]) + ' ||| ' + (source_composed_tree) + ' ||| ' + target_composed_tree 
+			#debug_str = ' '.join([str(source_edge.is_composed), str(target_edge.is_composed)]) + ' ||| ' + (source_composed_tree) + ' ||| ' + target_composed_tree 
 
 			parts = [rule_type, lhs, ' '.join(source_rhs), ' '.join(target_rhs), ' '.join('%d-%d' % link for link in alignments), ' '.join(node_types)]
 			if not args.suppress_counts:
@@ -441,12 +446,12 @@ if __name__ == "__main__":
 		if source_tree == None or target_tree == None:
 			pass
 		else:
-			try:
+			#try:
 				handle_sentence(source_tree, target_tree, alignment)
 				pass
-			except Exception as e:
-				if args.debug:
-					raise e	
+			#except Exception as e:
+			#	if args.debug:
+			#		raise e	
 		sys.stdout.flush()
 		sentence_number += 1
 		break
