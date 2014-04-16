@@ -361,5 +361,4 @@ if __name__ == "__main__":
 				if args.debug:
 					raise
 		sys.stdout.flush()
-		sentence_number += 1	
-		break
+		sentence_number += 1
