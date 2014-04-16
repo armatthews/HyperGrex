@@ -2,9 +2,10 @@
 import sys
 import math
 import heapq
+from rule_formatters import RuleFormatter, GrexRuleFormatter, CdecT2SRuleFormatter
 from tree import TreeNode, NonTerminalNode, TerminalNode
 from collections import defaultdict
-from helpers import computeSpans, Alignment, compute_generations
+from helpers import computeSpans, Alignment, compute_generations, Rule, Span
 from hypergraph import Hypergraph
 from itertools import izip
 
@@ -160,23 +161,16 @@ def are_aligned(source_node, target_node, source_terminals, target_terminals, s2
 
 	return True
 
-def build_mini_hypergraph(edges):
-	hg = Hypergraph(edges[0].head)
-	for edge in edges:
-		hg.add(edge)	
-	return hg
-
 # Extracts all available rules from the node pair source_node and target_node
 # Each rule will come from a pair of edges, one with head at source_node and
 # the other with head at target_node.
 # These two edges must have the same number of non-terminal children.
 def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments, minimal_only):
-	rules = list()
-	for source_edge in source_node.get_child_edges(source_root):	
+	for source_edge in source_node.get_child_edges(source_root):
 		if len(source_edge.tails) > max_rule_size:
 			continue
 		source_nt_count = len([node for node in source_edge.tails if not node.is_terminal(source_root)])
-		for target_edge in target_node.get_child_edges(target_root):	
+		for target_edge in target_node.get_child_edges(target_root):
 			if len(target_edge.tails) > max_rule_size:
 				continue
 			target_nt_count = len([node for node in target_edge.tails if not node.is_terminal(target_root)])
@@ -222,94 +216,15 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			# All that remains is to output it, which requires turning various bits
 			# of information into string form.
 
-			# Turn the source and target LHS into a string
-			lhs = '[%s::%s]' % (source_edge.head.label, target_edge.head.label)
-
-			# Turn the source and target RHS's into strings
-			source_rhs = []
-			for node in source_edge.tails:
-				if node.is_terminal(source_root):
-					source_rhs.append(node.label)
-				else:
-					target, index = s2t_rule_part_map[node]
-					source_rhs.append('[%s::%s,%d]' % (node.label, target.label, index))
-
-			target_rhs = []
-			for node in target_edge.tails:
-				if node.is_terminal(target_root):
-					target_rhs.append(node.label)
-				else:
-					source, index = t2s_rule_part_map[node]
-					target_rhs.append('[%s::%s,%d]' % (source.label, node.label, index))
-
-			# Work out the rule type
-			is_abstract_source = True
-			is_abstract_target = True
-			is_phrase = True
-			for node in source_edge.tails:
-				if node.is_terminal(source_root):
-					is_abstract_source = False
-				else:
-					is_phrase = False
-
-			for node in target_edge.tails:
-				if node.is_terminal(target_root):
-					is_abstract_target = False
-
-			node_types = []
-			s = 'V' if source_edge.head.is_virtual else 'O'
-			t = 'V' if target_edge.head.is_virtual else 'O'
-			node_types.append(s + t)
-			for source in source_edge.tails:
-				if source.is_terminal(source_root):
-					continue
-				target, _ = s2t_rule_part_map[source]	
-				s = 'V' if source.is_virtual else 'O'
-				t = 'V' if target.is_virtual else 'O'
-				node_types.append(s + t)
-
 			# Calculate the node-to-node and word-to-word alignments within this rule
 			alignments = []
-			for i, source_part in enumerate(source_edge.tails):
+			for i, source_part in enumerate(source_edge.tails):	
 				for j, target_part in enumerate(target_edge.tails):
-					if target_part in s2t_node_alignments[source_part] or source_part in t2s_node_alignments[target_part] or \
-					   target_part in s2t_word_alignments[source_part] or source_part in t2s_word_alignments[target_part]:
+					if target_part in s2t_node_alignments[source_part] or source_node in t2s_node_alignments[target_part] or \
+					   target_part in s2t_word_alignments[source_part] or source_node in t2s_word_alignments[target_part]:
 						alignments.append((i, j))
 
-			# Figure out what type of rule this is.
-			# P=phrase pair, G=partially lexicallized, A=fully abstract
-			# TODO: break 'A' into three categories?
-			if is_phrase:
-				rule_type = 'P'
-			elif is_abstract_source and is_abstract_target:
-				rule_type = 'A'
-			elif is_abstract_source:
-				rule_type = 'A'
-			elif is_abstract_target:
-				rule_type = 'A'
-			else:
-				rule_type = 'G'
-			
-			#debug_str = ' ||| '.join([' '.join([node.label for node in source_children]), ' '.join([node.label for node in target_edge.tails]), str(source_root.weights[source_edge]), str(target_root.weights[target_edge])])
-			source_composed_tree = ''
-			if source_edge.is_composed:
-				source_composed_tree = build_mini_hypergraph(source_edge.composed_edges).to_tree_string()
-			target_composed_tree = ''
-			if target_edge.is_composed:
-				target_composed_hg = build_mini_hypergraph(target_edge.composed_edges)
-				label_map = {node: str(index) for (node, (_, index)) in t2s_rule_part_map.iteritems()}	
-				target_composed_tree = target_composed_hg.to_tree_string(label_map)
-			#debug_str = ' '.join([str(source_edge.is_composed), str(target_edge.is_composed)]) + ' ||| ' + (source_composed_tree) + ' ||| ' + target_composed_tree 
-
-			parts = [rule_type, lhs, ' '.join(source_rhs), ' '.join(target_rhs), ' '.join('%d-%d' % link for link in alignments), ' '.join(node_types)]
-			if not args.suppress_counts:
-				parts.append('1.0 ' + str(weight))
-			#parts.append(debug_str)
-			rule = ' ||| '.join(parts)
-			rules.append(rule)
-	for rule in rules:
-		print rule.encode('utf-8')
-	sys.stdout.flush()
+			yield Rule(source_edge, target_edge, s2t_rule_part_map, t2s_rule_part_map, alignments, weight)
 
 def find_best_minimal_alignment(node, target_nodes, taken_target_nodes, target_generations):
 	target_nodes = [target_node for target_node in target_nodes if target_node not in taken_target_nodes and target_node.is_terminal_flag == node.is_terminal_flag]
@@ -355,7 +270,10 @@ def minimize_alignments(source_root, target_root, s2t, t2s):
 def handle_sentence(source_tree, target_tree, alignment):
 		# Add virtual nodes and edges to the tree structures
 		source_tree.add_virtual_nodes(args.virtual_size, False)
-		target_tree.add_virtual_nodes(args.virtual_size, False)
+		if not args.t2s:
+			target_tree.add_virtual_nodes(args.virtual_size, False)
+		else:
+			target_tree.add_virtual_nodes(1000, False)
 
 		# Build word alignment maps
 		s2t_word_alignments = defaultdict(list)
@@ -398,12 +316,14 @@ def handle_sentence(source_tree, target_tree, alignment):
 			source_tree.add_composed_edges(args.max_rule_size)
 			target_tree.add_composed_edges(args.max_rule_size)
 
-
 		# Finally extract rules
+		formatter = GrexRuleFormatter() if not args.t2s else CdecT2SRuleFormatter()
 		for source_node, target_nodes in s2t_node_alignments.copy().iteritems():
-			for target_node in target_nodes:
+			for target_node in target_nodes:	
 				if not source_node.is_terminal(source_tree) and not target_node.is_terminal(target_tree):
-					extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_tree, target_tree, args.max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments, args.minimal_rules)
+					for rule in extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_tree, target_tree, args.max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments, args.minimal_rules):
+						print formatter.format_rule(rule).encode('utf-8')
+		sys.stdout.flush()
 
 if __name__ == "__main__":
 	import argparse
@@ -442,3 +362,4 @@ if __name__ == "__main__":
 					raise
 		sys.stdout.flush()
 		sentence_number += 1	
+		break

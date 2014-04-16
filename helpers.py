@@ -6,9 +6,9 @@ from collections import defaultdict, namedtuple
 def Enum(**enums):
 	return type('Enum', (), enums)
 
-NodeAlignmentType = Enum(SRC_GROWN=1, TGT_GROWN=2, T2T=4, T2S=8, S2T=16, T2TS=32, TS2T=64, TS2TS=128, T2P=256, P2T=512)
 Span = namedtuple('Span', 'start, end')
 NodeAlignment = namedtuple('NodeAlignment', 'source_span, target_span, from_source, types')
+Rule = namedtuple('Rule', 'source_edge, target_edge, s2t_rule_part_map t2s_rule_part_map, alignments, weight')
 
 class Alignment:
 	def __init__(self, links):

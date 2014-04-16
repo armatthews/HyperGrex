@@ -11,19 +11,19 @@ class Edge:
 		self.head = head
 		self.tails = tails
 		self.is_composed = is_composed
-		self.composed_edges = []
+		self.composed_edges = tuple()
 
 	def __eq__(self, other):
-		return isinstance(other, Edge) and self.head == other.head and self.tails == other.tails and self.is_composed == other.is_composed
+		return isinstance(other, Edge) and self.head == other.head and self.tails == other.tails and self.is_composed == other.is_composed and self.composed_edges == other.composed_edges
 
 	def __ne__(self, other):
 		return not (self == other)
 
 	def __hash__(self):
-		return hash((self.head, self.tails, self.is_composed))
+		return hash((self.head, self.tails, self.is_composed, self.composed_edges))
 
 	def __repr__(self):
-		return "%sEdge(%s,%s)" % ('' if not self.is_composed else 'Composed', repr(self.head), repr(self.tails))
+		return "%sEdge(%s,%s,%s)" % ('' if not self.is_composed else 'Composed', repr(self.head), repr(self.tails), repr(self.composed_edges))
 
 class NodeWithSpan:
 	def __init__(self, label, span, is_terminal=False, is_virtual=False):
@@ -48,7 +48,7 @@ class NodeWithSpan:
 		return not (self == other)
 
 	def __hash__(self):
-		return hash((self.label, self.span, self.is_virtual))
+		return hash((self.label, self.span, self.is_virtual, self.is_terminal_flag))
 
 	def is_terminal(self, hg):
 		return self.is_terminal_flag
@@ -197,26 +197,36 @@ class Hypergraph:
 				   'nodes': nodes,
 				   'edges': edges})
 
-	def add_virtual_nodes(self, max_size, allow_unary_vns):
+	def add_virtual_nodes_helper(self, edge, max_size, allow_unary_vns, label_generator):
 		virtual_edges = []
-		for edge in self.edges:
-			for size in range(2, max_size + 1):
-				for start in range(len(edge.tails) - size + 1):	
-					if start == 0 and start + size == len(edge.tails) and not allow_unary_vns:
-						continue
-					covered_children = edge.tails[start : start + size]
-					virtual_label = '-'.join(child.label for child in covered_children)
-					virtual_span = Span(covered_children[0].span.start, covered_children[-1].span.end)
-					virtual_node = NodeWithSpan(virtual_label, virtual_span, False, True)
-					self.nodes.add(virtual_node)
-					virtual_tails = edge.tails[:start] + (virtual_node,) + edge.tails[start + size:]
-					virtual_edge1 = Edge(edge.head, virtual_tails)
-					virtual_edge2 = Edge(virtual_node, covered_children)
-					virtual_edges.append((virtual_edge1, self.weights[edge]))
-					virtual_edges.append((virtual_edge2, self.weights[edge]))
+		for size in range(2, max_size + 1):
+			for start in range(len(edge.tails) - size + 1):	
+				if start == 0 and start + size == len(edge.tails) and not allow_unary_vns:
+					continue	
+				covered_children = edge.tails[start : start + size]
+				virtual_label = label_generator(covered_children)
+				virtual_span = Span(covered_children[0].span.start, covered_children[-1].span.end)
+				virtual_node = NodeWithSpan(virtual_label, virtual_span, False, True)
+				#self.nodes.add(virtual_node)
+				virtual_tails = edge.tails[:start] + (virtual_node,) + edge.tails[start + size:]
+				virtual_edge1 = Edge(edge.head, virtual_tails)	
+				virtual_edge2 = Edge(virtual_node, covered_children)
+				virtual_edges.append((virtual_edge1, self.weights[edge]))
+				virtual_edges.append((virtual_edge2, self.weights[edge]))
+		return virtual_edges
 
-		for edge, weight in virtual_edges:
-			self.add(edge, weight)
+	def add_virtual_nodes(self, max_size, allow_unary_vns, label_generator=lambda nodes:'-'.join(node.label for node in nodes)):
+		done = set()
+		while len(self.edges - done) > 0:
+			virtual_edges = []
+			for edge in self.edges - done:
+				if not edge.head.is_virtual:
+					virtual_edges += self.add_virtual_nodes_helper(edge, max_size, allow_unary_vns, label_generator)
+				done.add(edge)
+
+			for edge, weight in virtual_edges:
+				if edge not in self.edges:
+					self.add(edge, weight)
 
 	def compose_edge(self, edge, max_size):
 		tail_choices = []
@@ -248,9 +258,10 @@ class Hypergraph:
 
 			if len(new_tails) <= max_size:
 				new_edge = Edge(edge.head, tuple(new_tails), True)
-				new_edge.composed_edges = composed_edges
-				if edge.tails != new_edge.tails:
-					self.add(new_edge, new_weight)		
+				assert len(composed_edges) > 0
+				new_edge.composed_edges = tuple(composed_edges)
+				if edge.tails != new_edge.tails:					
+					self.add(new_edge, new_weight)	
 		
 	def add_composed_edges(self, max_size):
 		for node in self.topsort():
@@ -263,11 +274,11 @@ class Hypergraph:
 		tail_choices = []
 		for tail in edge.tails:
 			choices = []
-			choices.append(((tail,), 1.0))
+			choices.append(((tail,), 1.0, None))
 
 			# Composing through virtual nodes leads to us counting a ton of stuff twice.
 			# Note that composing through virtual nodes will never add any extra edges either.
-			if not tail.is_virtual and tail not in aligned_nodes:
+			if not tail.is_virtual and tail not in aligned_nodes:	
 				for child_edge in self.head_index[tail]:
 					is_valid = True
 					for t in child_edge.tails:
@@ -277,7 +288,7 @@ class Hypergraph:
 					if not is_valid:
 						continue
 					if len(child_edge.tails) <= max_size - len(edge.tails) + 1:
-						choices.append((child_edge.tails, self.weights[child_edge]))
+						choices.append((child_edge.tails, self.weights[child_edge], child_edge))
 			tail_choices.append(choices)
 
 		if len(tail_choices) > max_size:
@@ -286,13 +297,18 @@ class Hypergraph:
 		for chosen_tails in enumerate_subsets(tail_choices):
 			new_tails = []
 			new_weight = self.weights[edge]
-			for tail, weight in chosen_tails:
+			composed_edges = [edge]
+			for tail, weight, internal_edge in chosen_tails:
 				assert len(tail) >= 1
 				new_tails += tail
 				new_weight *= weight
+				if internal_edge is not None:
+					composed_edges.append(internal_edge)
 
 			if len(new_tails) <= max_size:
 				new_edge = Edge(edge.head, tuple(new_tails), True)
+				assert len(composed_edges) > 0
+				new_edge.composed_edges = tuple(composed_edges)
 				if edge.tails != new_edge.tails:
 					self.add(new_edge, new_weight)
 
