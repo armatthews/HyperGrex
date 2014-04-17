@@ -215,7 +215,7 @@ class Hypergraph:
 				virtual_edges.append((virtual_edge2, self.weights[edge]))
 		return virtual_edges
 
-	def add_virtual_nodes(self, max_size, allow_unary_vns, label_generator=lambda nodes:'-'.join(node.label for node in nodes)):
+	def add_virtual_nodes(self, max_size, allow_unary_vns, allow_recursive_vns=False, label_generator=lambda nodes:'-'.join(node.label for node in nodes)):
 		done = set()
 		while len(self.edges - done) > 0:
 			virtual_edges = []
@@ -228,7 +228,10 @@ class Hypergraph:
 				if edge not in self.edges:
 					self.add(edge, weight)
 
-	def compose_edge(self, edge, max_size):
+			if not allow_recursive_vns:
+				break
+
+	def compose_edge(self, edge, max_size, minimal_only=False, aligned_nodes=[]):
 		tail_choices = []
 		for tail in edge.tails:
 			choices = []
@@ -236,10 +239,22 @@ class Hypergraph:
 
 			# Composing through virtual nodes leads to us counting a ton of stuff twice.
 			# Note that composing through virtual nodes will never add any extra edges either.
-			if not tail.is_virtual:
-				for child_edge in tail.get_child_edges(self):
-					if len(child_edge.tails) <= max_size - len(edge.tails) + 1:
-						choices.append((child_edge.tails, self.weights[child_edge], child_edge))
+			if not tail.is_virtual and (not minimal_only or tail not in aligned_nodes):
+				# In minimal mode, we don't compose through aligned nodes
+				if not minimal_only or not tail in aligned_nodes:
+					for child_edge in tail.get_child_edges(self):
+						# In minimal mode, each tail must be an aligned node.
+						is_valid = True
+						if minimal_only:
+							for t in child_edge.tails:
+								if t not in aligned_nodes and not t.is_terminal_flag:
+									is_valid = False
+									break
+						if not is_valid:
+							continue
+				
+						if len(child_edge.tails) <= max_size - len(edge.tails) + 1:
+							choices.append((child_edge.tails, self.weights[child_edge], child_edge))
 			tail_choices.append(choices)
 
 		if len(tail_choices) > max_size:
@@ -268,54 +283,11 @@ class Hypergraph:
 			for edge in self.head_index[node].copy():
 				self.compose_edge(edge, max_size)
 
-	# TODO: These next two functions are largely copy/pasted from the above two.
-	# Perhaps they could be re-united
-	def compose_edge_minimally(self, edge, max_size, aligned_nodes):
-		tail_choices = []
-		for tail in edge.tails:
-			choices = []
-			choices.append(((tail,), 1.0, None))
-
-			# Composing through virtual nodes leads to us counting a ton of stuff twice.
-			# Note that composing through virtual nodes will never add any extra edges either.
-			if not tail.is_virtual and tail not in aligned_nodes:	
-				for child_edge in self.head_index[tail]:
-					is_valid = True
-					for t in child_edge.tails:
-						if t not in aligned_nodes and not t.is_terminal_flag:
-							is_valid = False
-							break
-					if not is_valid:
-						continue
-					if len(child_edge.tails) <= max_size - len(edge.tails) + 1:
-						choices.append((child_edge.tails, self.weights[child_edge], child_edge))
-			tail_choices.append(choices)
-
-		if len(tail_choices) > max_size:
-			return
-
-		for chosen_tails in enumerate_subsets(tail_choices):
-			new_tails = []
-			new_weight = self.weights[edge]
-			composed_edges = [edge]
-			for tail, weight, internal_edge in chosen_tails:
-				assert len(tail) >= 1
-				new_tails += tail
-				new_weight *= weight
-				if internal_edge is not None:
-					composed_edges.append(internal_edge)
-
-			if len(new_tails) <= max_size:
-				new_edge = Edge(edge.head, tuple(new_tails), True)
-				assert len(composed_edges) > 0
-				new_edge.composed_edges = tuple(composed_edges)
-				if edge.tails != new_edge.tails:
-					self.add(new_edge, new_weight)
 
 	def add_minimal_composed_edges(self, max_size, aligned_nodes):
 		for node in self.topsort():
 			for edge in self.head_index[node].copy():
-				self.compose_edge_minimally(edge, max_size, aligned_nodes)
+				self.compose_edge(edge, max_size, True, aligned_nodes)
 
 	def covering_sets(self, i, j, nodes_by_start):
 		r = set()
