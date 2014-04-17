@@ -341,11 +341,18 @@ class Hypergraph:
 		while not terminals.empty():
 			n = terminals.get()
 			sorted_nodes.append(n)
-			for edge in [edge for edge in self.tail_index[n] if edge not in removed_edges]:
+			for edge in self.tail_index[n] - removed_edges:
 				m = edge.head
-				if len([tail for tail in edge.tails if tail not in sorted_nodes]) == 0:
+
+				needs_added = True
+				for tail in edge.tails:
+					if tail not in sorted_nodes:
+						needs_added = False
+						break
+
+				if needs_added == True:
 					removed_edges.add(edge)
-				if len([edge for edge in self.head_index[m] if edge not in removed_edges]) == 0:
+				if len(self.head_index[m] - removed_edges) == 0:
 					terminals.put(m)
 
 		if len([edge for edge in self.edges if edge not in removed_edges]) > 0:
