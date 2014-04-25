@@ -273,10 +273,23 @@ def minimize_alignments(source_root, target_root, s2t, t2s):
 			minimal_s2t[source_node].add(target_node)
 			minimal_t2s[target_node].add(source_node)
 
+	# Ensure the root nodes aren't aligned to anything other than each other
+	for node in minimal_s2t.iterkeys():
+		if target_tree.start in minimal_s2t[node]:
+			minimal_s2t[node].remove(target_root.start)
+
+	for node in minimal_t2s.iterkeys():
+		if source_tree.start in minimal_t2s[node]:
+			minimal_t2s[node].remove(source_root.start)
+
+	minimal_s2t[source_tree.start] = set([target_root.start])
+	minimal_t2s[target_tree.start] = set([source_root.start])
+
+
 	for k, v in minimal_s2t.iteritems():
-		assert len(v) == 1
+		assert len(v) <= 1
 	for k, v in minimal_t2s.iteritems():
-		assert len(v) == 1
+		assert len(v) <= 1
 
 	return minimal_s2t, minimal_t2s
 	
@@ -296,7 +309,7 @@ def build_node_alignment_maps(source_tree, target_tree, are_aligned, minimal_onl
 	t2s_node_alignments[target_tree.start].add(source_tree.start)
 
 	if minimal_only:
-		s2t_node_alignments, t2s_node_alignments = minimize_alignments(source_tree, target_tree, s2t_node_alignments, t2s_node_alignments)	
+		s2t_node_alignments, t2s_node_alignments = minimize_alignments(source_tree, target_tree, s2t_node_alignments, t2s_node_alignments)
 
 	return s2t_node_alignments, t2s_node_alignments
 
