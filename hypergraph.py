@@ -144,20 +144,15 @@ class Hypergraph:
 	@staticmethod
 	def from_surface_string(string):
 		words = string.strip().split()
-		root_node = NodeWithSpan('ROOT', Span(0, len(words) + 1))
-		x_nodes = tuple(NodeWithSpan('X', Span(i, i + 1)) for i, word in enumerate(words))
-		child_nodes = tuple(NodeWithSpan(word, Span(i, i + 1), True) for i, word in enumerate(words))
+		root_node = NodeWithSpan('X', Span(0, len(words)), False, True)
 
 		hg = Hypergraph(root_node)
-		hg.nodes.update(x_nodes)
-		hg.nodes.update(child_nodes)
+		for i, word in enumerate(words):
+			hg.nodes.add(NodeWithSpan(word, Span(i, i + 1), True))
 
-		edge = Edge(root_node, x_nodes)
-		hg.add(edge)
-		for x_node, child_node in zip(x_nodes, child_nodes):
-			edge = Edge(x_node, (child_node,))
-			hg.add(edge)
-		return hg	
+		# Note that we don't add pre-terminals.
+		# Those will be included as virtual nodes of size 1.
+		return hg
 
 	@staticmethod
 	def from_tree(root, weight=1.0):
@@ -197,6 +192,21 @@ class Hypergraph:
 				   'nodes': nodes,
 				   'edges': edges})
 
+	def add_virtual_nodes_only(self, max_size, allow_unary_vns, label_generator=lambda nodes: '-'.join(node.label for node in nodes)):
+		min_size = 1 if allow_unary_vns else 2
+		for edge in self.edges:	
+			if edge.head.is_virtual:
+				continue
+			for size in range(min_size, max_size + 1):
+				for start in range(len(edge.tails) - size + 1):
+					if start == 0 and start + size == len(edge.tails) and not allow_unary_vns:
+						continue
+					covered_children = edge.tails[start : start + size]
+					virtual_label = label_generator(covered_children)
+					virtual_span = Span(covered_children[0].span.start, covered_children[-1].span.end)
+					virtual_node = NodeWithSpan(virtual_label, virtual_span, False, True)
+					self.nodes.add(virtual_node)
+
 	def add_virtual_nodes_helper(self, edge, max_size, allow_unary_vns, label_generator):
 		virtual_edges = []
 		for size in range(2, max_size + 1):
@@ -207,14 +217,18 @@ class Hypergraph:
 				virtual_label = label_generator(covered_children)
 				virtual_span = Span(covered_children[0].span.start, covered_children[-1].span.end)
 				virtual_node = NodeWithSpan(virtual_label, virtual_span, False, True)
-				#self.nodes.add(virtual_node)
+				assert virtual_node in self.nodes
 				virtual_tails = edge.tails[:start] + (virtual_node,) + edge.tails[start + size:]
-				virtual_edge1 = Edge(edge.head, virtual_tails)	
+				virtual_edge1 = Edge(edge.head, virtual_tails)
 				virtual_edge2 = Edge(virtual_node, covered_children)
 				virtual_edges.append((virtual_edge1, self.weights[edge]))
 				virtual_edges.append((virtual_edge2, self.weights[edge]))
 		return virtual_edges
 
+	# max_size: maximum number of sibling nodes that we allow to combine into one VN
+	# allow_unary_vns: If we have S --> NP VP, should we add a VN of the form S --> NP-VP ?
+	# allow_recursive_vns: Do we allow VNs to be children of larger VNs?
+	# label_generator: A lambda function that takes a list of nodes and returns the label we will put on a VN over those nodes
 	def add_virtual_nodes(self, max_size, allow_unary_vns, allow_recursive_vns=False, label_generator=lambda nodes:'-'.join(node.label for node in nodes)):
 		done = set()
 		while len(self.edges - done) > 0:
@@ -330,6 +344,8 @@ class Hypergraph:
 		if len([edge for edge in self.edges if edge not in removed_edges]) > 0:
 			raise Exception('Invalid attempt to topsort a hypergraph with cycles')
 		else:
+			# Any nodes not connected to the graph are essentially terminals, so just add them to the front of the list.
+			sorted_nodes = list(self.nodes - set(sorted_nodes)) + sorted_nodes
 			assert len(self.nodes) == len(sorted_nodes)
 			return sorted_nodes
 

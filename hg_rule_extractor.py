@@ -6,7 +6,7 @@ from rule_formatters import RuleFormatter, GrexRuleFormatter, CdecT2SRuleFormatt
 from tree import TreeNode, NonTerminalNode, TerminalNode
 from collections import defaultdict
 from helpers import computeSpans, Alignment, compute_generations, Rule, Span
-from hypergraph import Hypergraph
+from hypergraph import Hypergraph, NodeWithSpan, Edge
 from itertools import izip
 
 # Turns a line of input into a hypergraph.
@@ -100,6 +100,7 @@ def read_tree_file(stream):
 
 		parts = hypergraph_from_line(line)
 		if parts == None:
+			yield None
 			continue
 		else:
 			tree, score, can_combine = parts
@@ -137,9 +138,9 @@ def read_alignment_file(stream):
 # align only to terminals of the other, or to NULL.
 # The one exception is if both nodes have no alignment links coming from their
 # terminals at all. In this case the nodes are not considered to be aligned. 
-def are_aligned(source_node, target_node, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
-	source_node_terminals = source_terminals[source_node.span.start : source_node.span.end]
-	target_node_terminals = target_terminals[target_node.span.start : target_node.span.end]
+def are_aligned(source_span, target_span, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
+	source_node_terminals = source_terminals[source_span.start : source_span.end]
+	target_node_terminals = target_terminals[target_span.start : target_span.end]
 
 	has_alignments = False
 	for terminal in source_node_terminals:
@@ -165,12 +166,12 @@ def are_aligned(source_node, target_node, source_terminals, target_terminals, s2
 # Each rule will come from a pair of edges, one with head at source_node and
 # the other with head at target_node.
 # These two edges must have the same number of non-terminal children.
-def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments, minimal_only):
+def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_root, target_root, max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
 	for source_edge in source_node.get_child_edges(source_root):
 		if len(source_edge.tails) > max_rule_size:
 			continue
 		source_nt_count = len([node for node in source_edge.tails if not node.is_terminal(source_root)])
-		for target_edge in target_node.get_child_edges(target_root):
+		for target_edge in target_node.get_child_edges(target_root):	
 			if len(target_edge.tails) > max_rule_size:
 				continue
 			target_nt_count = len([node for node in target_edge.tails if not node.is_terminal(target_root)])
@@ -227,60 +228,144 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 			yield Rule(source_edge, target_edge, s2t_rule_part_map, t2s_rule_part_map, alignments, weight)
 
 def find_best_minimal_alignment(node, target_nodes, taken_target_nodes, target_generations):
-	target_nodes = [target_node for target_node in target_nodes if target_node not in taken_target_nodes and target_node.is_terminal_flag == node.is_terminal_flag]
+	# only allow terminals to align to terminals, and NTs to align to NTs
+	target_nodes = set([target_node for target_node in target_nodes
+					if target_node.is_terminal_flag == node.is_terminal_flag])
 	if len(target_nodes) == 0:
 		return None
 
+	# A minimal alignment will have the smallest span of all aligned nodes
 	min_span_size = min([target_node.span.end - target_node.span.start for target_node in target_nodes])
-	minimal_alignments = [target_node for target_node in target_nodes
-                                          if target_node.span.end - target_node.span.start == min_span_size]
+	target_nodes = set([target_node for target_node in target_nodes
+					if target_node.span.end - target_node.span.start == min_span_size])
+
+	# Whatever node we're aligned to must not have been previously aligned to something else
+	target_nodes = target_nodes - taken_target_nodes
+	if len(target_nodes) == 0:
+		return None
 
 	# If there is more than one, such as in a unary chain
 	# return the aligned node lowest in the tree, i.e. with max generation
-	return max(minimal_alignments, key=lambda target_node: target_generations[target_node])
+	return max(target_nodes, key=lambda target_node: target_generations[target_node])
 
-def minimize_alignments_helper(source_node, s2t, t2s, target_generations, source_root, taken_target_nodes, visited_nodes):
-	for edge in source_root.head_index[source_node]:
-		for child in edge.tails:
-			if child not in visited_nodes:
-				minimize_alignments_helper(child, s2t, t2s, target_generations, source_root, taken_target_nodes, visited_nodes)
-
-	best_alignment = find_best_minimal_alignment(source_node, s2t[source_node], taken_target_nodes, target_generations)
-	if best_alignment is not None:
-		for target_node in s2t[source_node].copy():
-			if target_node != best_alignment:
-				s2t[source_node].remove(target_node)
-				t2s[target_node].remove(source_node)
-				if len(t2s[target_node]) == 0:
-					del t2s[target_node]
-		taken_target_nodes.add(best_alignment)
-	visited_nodes.add(source_node)
-
-# Removes non-minimal node alignments from a hypergraph. We define an edge as
-# non-minimal if it skips (i.e. composes over) a node that is
-# node-aligned to something in the opposite tree.
+# Removes non-minimal node alignments from a hypergraph.
+# If a node is aligned to multiple opposite nodes,
+# its minimal alignment is the smallest one span-wise.
+# If that's a tie, the minimal alignment is the one lowest
+# in the tree, i.e. the one with the highest generation.
 def minimize_alignments(source_root, target_root, s2t, t2s):
-	target_generations = compute_generations(target_root)
-	visited_nodes = set()
+	if args.t2s:
+		target_generations = {}
+		for node in target_root.nodes:
+			target_generations[node] = 2 if node.is_terminal_flag else 1
+		target_generations[target_root.start] = 0
+	else:
+		target_generations = compute_generations(target_root)
+
 	taken_target_nodes = set()
-	minimize_alignments_helper(source_root.start, s2t, t2s, target_generations, source_root, taken_target_nodes, visited_nodes)
+	minimal_s2t = defaultdict(set)
+	minimal_t2s = defaultdict(set)
+	for source_node in source_root.topsort():
+		target_nodes = s2t[source_node]
+		target_node = find_best_minimal_alignment(source_node, target_nodes, taken_target_nodes, target_generations)
+		if target_node is not None:
+			taken_target_nodes.add(target_node)
+			minimal_s2t[source_node].add(target_node)
+			minimal_t2s[target_node].add(source_node)
+
+	for k, v in minimal_s2t.iteritems():
+		assert len(v) == 1
+	for k, v in minimal_t2s.iteritems():
+		assert len(v) == 1
+
+	return minimal_s2t, minimal_t2s
+	
+
+def build_node_alignment_maps(source_tree, target_tree, are_aligned, minimal_only=False):
+	s2t_node_alignments = defaultdict(set)
+	t2s_node_alignments = defaultdict(set)
+	for s_node in source_tree.nodes:
+		s2t_node_alignments[s_node] = set()
+		for t_node in target_tree.nodes:
+				if are_aligned(s_node.span, t_node.span):
+					s2t_node_alignments[s_node].add(t_node)
+					t2s_node_alignments[t_node].add(s_node)	
+
+	# The roots of the two trees are always node-aligned, even when there are no alignment links
+	s2t_node_alignments[source_tree.start].add(target_tree.start)
+	t2s_node_alignments[target_tree.start].add(source_tree.start)
+
+	if minimal_only:
+		s2t_node_alignments, t2s_node_alignments = minimize_alignments(source_tree, target_tree, s2t_node_alignments, t2s_node_alignments)	
+
+	return s2t_node_alignments, t2s_node_alignments
+
+
+def find_aligned_spans(target_tree, source_nodes, are_aligned):
+	aligned_spans = set()
+	target_len = max(node.span.end for node in target_tree.nodes)
+	for span_size in range(1, target_len + 1):
+		for span_start in range(target_len - span_size + 1):
+			for node in source_nodes:
+				if are_aligned(node.span, Span(span_start, span_start + span_size)):
+					aligned_spans.add(Span(span_start, span_start + span_size))
+					break
+	return aligned_spans
+
+def find_child_sets(nodes, span, max_nt_count, aligned_spans):
+	for node in nodes:
+		if node.span.start != span.start:
+			continue
+
+		if max_nt_count == 0 and not node.is_terminal_flag:
+			continue
+
+		if not node.is_terminal_flag and node.span not in aligned_spans:
+			continue
+
+		if node.span.end == span.end:
+			if max_nt_count >= 1 or node.is_terminal_flag:
+				yield [node]
+		else:
+			if max_nt_count > 0:
+				max_nt_siblings = max_nt_count - (0 if node.is_terminal_flag else 1)
+			else:
+				max_nt_siblings = 0
+
+			for sibling_set in find_child_sets(nodes, Span(node.span.end, span.end), max_nt_siblings, aligned_spans):
+				assert len([1 for child in sibling_set if not child.is_terminal_flag]) <= max_nt_siblings
+				child_set = [node] + sibling_set
+				nt_count = len([1 for child in child_set if not child.is_terminal_flag])
+				assert nt_count <= max_nt_count
+				yield child_set
+
+def add_t2s_virtual_nodes(target_tree, source_tree, are_aligned):
+	aligned_spans = find_aligned_spans(target_tree, source_tree.nodes, are_aligned)
+	for aligned_span in sorted(aligned_spans, key=lambda span: span.end - span.start):
+		# Note: virtual_node should == target_tree.root when aligned_span covers the whole sentence
+		virtual_node = NodeWithSpan('X', aligned_span, False, True)
+		target_tree.nodes.add(virtual_node)
+
+def add_t2s_virtual_edges(target_tree, source_tree, are_aligned):
+	aligned_spans = find_aligned_spans(target_tree, source_tree.nodes, are_aligned)
+	for aligned_span in sorted(aligned_spans, key=lambda span: span.end - span.start):
+		# Note: virtual_node should == target_tree.root when aligned_span covers the whole sentence
+		virtual_node = NodeWithSpan('X', aligned_span, False, True)
+		for child_set in find_child_sets(target_tree.nodes.copy(), aligned_span, args.max_rule_size + 1000, aligned_spans):
+			if virtual_node in child_set:
+				continue
+			virtual_edge = Edge(virtual_node, tuple(child_set))
+			target_tree.add(virtual_edge)
 
 # Takes two hypergraphs representing source and target trees, as well as a word
 # alignment, and finds all rules extractable there from.
 def handle_sentence(source_tree, target_tree, alignment):
-		# Add virtual nodes and edges to the tree structures
-		source_tree.add_virtual_nodes(args.virtual_size, False)
-		if not args.t2s:
-			target_tree.add_virtual_nodes(args.virtual_size, False)
-		else:
-			target_tree.add_virtual_nodes(1000, False)
-
 		# Build word alignment maps
 		s2t_word_alignments = defaultdict(list)
 		t2s_word_alignments = defaultdict(list)
 
-		source_terminals = source_tree.start.find_terminals(source_tree)
-		target_terminals = target_tree.start.find_terminals(target_tree)
+		source_terminals = sorted([node for node in source_tree.nodes if node.is_terminal_flag], key=lambda node: node.span.start)
+		target_terminals = sorted([node for node in target_tree.nodes if node.is_terminal_flag], key=lambda node: node.span.start)
 
 		for s, t in alignment.links:
 			s_node = source_terminals[s]
@@ -288,40 +373,45 @@ def handle_sentence(source_tree, target_tree, alignment):
 			s2t_word_alignments[s_node].append(t_node)
 			t2s_word_alignments[t_node].append(s_node)
 
+		spans_are_aligned = lambda source_span, target_span: are_aligned(source_span, target_span, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments)
+	
+		source_tree.add_virtual_nodes_only(args.virtual_size, False)
+		if not args.t2s:
+			target_tree.add_virtual_nodes_only(args.virtual_size, False)
+		else:	
+			add_t2s_virtual_nodes(target_tree, source_tree, spans_are_aligned)
+			#target_tree.add_virtual_nodes_only(1000, True, lambda nodes: 'X')
+
 		# Build node alignments maps
-		s2t_node_alignments = defaultdict(set)
-		t2s_node_alignments = defaultdict(set)
-		for s_node in source_tree.nodes:
-			s2t_node_alignments[s_node] = set()
-			for t_node in target_tree.nodes:
-					if are_aligned(s_node, t_node, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
-						s2t_node_alignments[s_node].add(t_node)
-						t2s_node_alignments[t_node].add(s_node)
+		s2t_node_alignments, t2s_node_alignments = build_node_alignment_maps(source_tree, target_tree, spans_are_aligned, args.minimal_rules)
 
-		# The roots of the two trees are always node-aligned, even when there are no alignment links
-		s2t_node_alignments[source_tree.start].add(target_tree.start)
-		t2s_node_alignments[target_tree.start].add(source_tree.start)
-
-		if args.minimal_rules:
-			minimize_alignments(source_tree, target_tree, s2t_node_alignments, t2s_node_alignments)
-			minimize_alignments(target_tree, source_tree, t2s_node_alignments, s2t_node_alignments)
+		# Add virtual nodes and edges to the tree structures
+		source_tree.add_virtual_nodes(args.virtual_size, False)
+		if not args.t2s:
+			target_tree.add_virtual_nodes(args.virtual_size, False)
+		else:
+			aligned_spans = set([node.span for node in t2s_node_alignments.keys()])
+			in_aligned_spans = lambda source_span, target_span: target_span in aligned_spans
+			add_t2s_virtual_edges(target_tree, source_tree, in_aligned_spans)
 
 		# Add composed edges to the tree structures
 		if args.minimal_rules:
 			s2t_aligned_nodes = set(node for node, alignments in s2t_node_alignments.iteritems() if len(alignments) > 0)
 			t2s_aligned_nodes = set(node for node, alignments in t2s_node_alignments.iteritems() if len(alignments) > 0)
 			source_tree.add_minimal_composed_edges(args.max_rule_size, s2t_aligned_nodes)
-			target_tree.add_minimal_composed_edges(args.max_rule_size, t2s_aligned_nodes)
+			if not args.t2s:
+				target_tree.add_minimal_composed_edges(args.max_rule_size, t2s_aligned_nodes)
 		else:
 			source_tree.add_composed_edges(args.max_rule_size)
-			target_tree.add_composed_edges(args.max_rule_size)
+			if not args.t2s:
+				target_tree.add_composed_edges(args.max_rule_size)
 
 		# Finally extract rules
 		formatter = GrexRuleFormatter() if not args.t2s else CdecT2SRuleFormatter()
 		for source_node, target_nodes in s2t_node_alignments.copy().iteritems():
-			for target_node in target_nodes:	
+			for target_node in target_nodes:
 				if not source_node.is_terminal(source_tree) and not target_node.is_terminal(target_tree):
-					for rule in extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_tree, target_tree, args.max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments, args.minimal_rules):
+					for rule in extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_tree, target_tree, args.max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
 						print formatter.format_rule(rule).encode('utf-8')
 		sys.stdout.flush()
 
