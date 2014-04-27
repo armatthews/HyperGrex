@@ -325,15 +325,12 @@ def find_aligned_spans(target_tree, source_nodes, are_aligned):
 					break
 	return aligned_spans
 
-def find_child_sets(nodes, span, max_nt_count, aligned_spans):
+def find_child_sets(nodes, span, max_nt_count):
 	for node in nodes:
 		if node.span.start != span.start:
 			continue
 
 		if max_nt_count == 0 and not node.is_terminal_flag:
-			continue
-
-		if not node.is_terminal_flag and node.span not in aligned_spans:
 			continue
 
 		if node.span.end == span.end:
@@ -345,7 +342,7 @@ def find_child_sets(nodes, span, max_nt_count, aligned_spans):
 			else:
 				max_nt_siblings = 0
 
-			for sibling_set in find_child_sets(nodes, Span(node.span.end, span.end), max_nt_siblings, aligned_spans):
+			for sibling_set in find_child_sets(nodes, Span(node.span.end, span.end), max_nt_siblings):
 				assert len([1 for child in sibling_set if not child.is_terminal_flag]) <= max_nt_siblings
 				child_set = [node] + sibling_set
 				nt_count = len([1 for child in child_set if not child.is_terminal_flag])
@@ -364,7 +361,8 @@ def add_t2s_virtual_edges(target_tree, source_tree, are_aligned):
 	for aligned_span in sorted(aligned_spans, key=lambda span: span.end - span.start):
 		# Note: virtual_node should == target_tree.root when aligned_span covers the whole sentence
 		virtual_node = NodeWithSpan('X', aligned_span, False, True)
-		for child_set in find_child_sets(target_tree.nodes.copy(), aligned_span, args.max_rule_size + 1000, aligned_spans):
+		valid_nodes = set([node for node in target_tree.nodes if node.is_terminal_flag or node.span in aligned_spans])
+		for child_set in find_child_sets(valid_nodes, aligned_span, args.max_rule_size + 1000):
 			if virtual_node in child_set:
 				continue
 			virtual_edge = Edge(virtual_node, tuple(child_set))
