@@ -84,7 +84,6 @@ def combine_trees(trees_to_combine):
 		final_hypergraph.combine(hypergraph)
 	return final_hypergraph
 
-
 def read_tree_file(stream):
 	trees_to_combine = []
 	while True:
@@ -292,8 +291,18 @@ def minimize_alignments(source_root, target_root, s2t, t2s):
 		assert len(v) <= 1
 
 	return minimal_s2t, minimal_t2s
-	
 
+def build_word_alignment_maps(source_terminals, target_terminals, alignment):
+	s2t_word_alignments = defaultdict(list)
+	t2s_word_alignments = defaultdict(list)
+	for s, t in alignment.links:
+		s_node = source_terminals[s]
+		t_node = target_terminals[t]
+		s2t_word_alignments[s_node].append(t_node)
+		t2s_word_alignments[t_node].append(s_node)
+	return s2t_word_alignments, t2s_word_alignments
+
+	
 def build_node_alignment_maps(source_tree, target_tree, are_aligned, minimal_only=False):
 	s2t_node_alignments = defaultdict(set)
 	t2s_node_alignments = defaultdict(set)
@@ -313,7 +322,8 @@ def build_node_alignment_maps(source_tree, target_tree, are_aligned, minimal_onl
 
 	return s2t_node_alignments, t2s_node_alignments
 
-
+# Returns a set of spans in the target_tree that are well aligned to
+# nodes in source_nodes, as given by the are_aligned function.
 def find_aligned_spans(target_tree, source_nodes, are_aligned):
 	aligned_spans = set()
 	target_len = max(node.span.end for node in target_tree.nodes)
@@ -325,6 +335,8 @@ def find_aligned_spans(target_tree, source_nodes, are_aligned):
 					break
 	return aligned_spans
 
+# Generates all the (ordered) sets of nodes that can exactly cover the input span,
+# using at most max_nt_count non-terminal nodes.
 def find_child_sets(nodes, span, max_nt_count):
 	for node in nodes:
 		if node.span.start != span.start:
@@ -367,16 +379,6 @@ def add_t2s_virtual_edges(target_tree, source_tree, are_aligned):
 				continue
 			virtual_edge = Edge(virtual_node, tuple(child_set))
 			target_tree.add(virtual_edge)
-
-def build_word_alignment_maps(source_terminals, target_terminals, alignment):
-	s2t_word_alignments = defaultdict(list)
-	t2s_word_alignments = defaultdict(list)
-	for s, t in alignment.links:
-		s_node = source_terminals[s]
-		t_node = target_terminals[t]
-		s2t_word_alignments[s_node].append(t_node)
-		t2s_word_alignments[t_node].append(s_node)
-	return s2t_word_alignments, t2s_word_alignments
 
 # Takes two hypergraphs representing source and target trees, as well as a word
 # alignment, and finds all rules extractable there from.
