@@ -368,22 +368,27 @@ def add_t2s_virtual_edges(target_tree, source_tree, are_aligned):
 			virtual_edge = Edge(virtual_node, tuple(child_set))
 			target_tree.add(virtual_edge)
 
+def build_word_alignment_maps(source_terminals, target_terminals, alignment):
+	s2t_word_alignments = defaultdict(list)
+	t2s_word_alignments = defaultdict(list)
+	for s, t in alignment.links:
+		s_node = source_terminals[s]
+		t_node = target_terminals[t]
+		s2t_word_alignments[s_node].append(t_node)
+		t2s_word_alignments[t_node].append(s_node)
+	return s2t_word_alignments, t2s_word_alignments
+
 # Takes two hypergraphs representing source and target trees, as well as a word
 # alignment, and finds all rules extractable there from.
 def handle_sentence(source_tree, target_tree, alignment):
-		# Build word alignment maps
-		s2t_word_alignments = defaultdict(list)
-		t2s_word_alignments = defaultdict(list)
-
+		# Identify the terminal nodes in both trees
 		source_terminals = sorted([node for node in source_tree.nodes if node.is_terminal_flag], key=lambda node: node.span.start)
 		target_terminals = sorted([node for node in target_tree.nodes if node.is_terminal_flag], key=lambda node: node.span.start)
 
-		for s, t in alignment.links:
-			s_node = source_terminals[s]
-			t_node = target_terminals[t]
-			s2t_word_alignments[s_node].append(t_node)
-			t2s_word_alignments[t_node].append(s_node)
+		# Build word alignment maps
+		s2t_word_alignments, t2s_word_alignments = build_word_alignment_maps(source_terminals, target_terminals, alignment)
 
+		# Define this little helper function
 		spans_are_aligned = lambda source_span, target_span: are_aligned(source_span, target_span, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments)
 	
 		source_tree.add_virtual_nodes_only(args.virtual_size, False)
