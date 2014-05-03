@@ -1,3 +1,4 @@
+import sys
 from hypergraph import Hypergraph
 from helpers import Rule
 
@@ -118,10 +119,10 @@ class CdecT2SRuleFormatter:
 		source_tree = source_hg.to_tree_string()
 
 		target_structure = target_edge.composed_edges if target_edge.is_composed else [target_edge]
-		target_hg = CdecT2SRuleFormatter.build_mini_hypergraph(target_structure)
+		target_hg = CdecT2SRuleFormatter.build_mini_hypergraph(target_structure)	
 		label_map = {node: '[%d]' % index for (node, (_, index)) in t2s_rule_part_map.iteritems()}
 		target_side = ' '.join(label_map[node] if node in label_map else node.label for node in CdecT2SRuleFormatter.find_terminals(target_hg))
 		
 		feats = {'count': weight, 'sent_count': 1}
 		feats = ' '.join('%s=%s' % (name, str(value)) for name, value in feats.iteritems())
-		return ' ||| '.join([source_tree, target_side, feats])
+		return ' ||| '.join([source_tree, target_side, ' '.join('%d-%d' % link for link in alignments), feats])

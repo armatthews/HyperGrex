@@ -2,10 +2,11 @@
 import sys
 import math
 import heapq
+import operator
 from rule_formatters import RuleFormatter, GrexRuleFormatter, CdecT2SRuleFormatter
 from tree import TreeNode, NonTerminalNode, TerminalNode
 from collections import defaultdict
-from helpers import computeSpans, Alignment, compute_generations, Rule, Span
+from helpers import computeSpans, Alignment, compute_generations, Rule, Span, enumerate_subsets
 from hypergraph import Hypergraph, NodeWithSpan, Edge
 from itertools import izip
 
@@ -170,7 +171,7 @@ def extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignm
 		if len(source_edge.tails) > max_rule_size:
 			continue
 		source_nt_count = len([node for node in source_edge.tails if not node.is_terminal(source_root)])
-		for target_edge in target_node.get_child_edges(target_root):	
+		for target_edge in target_node.get_child_edges(target_root):
 			if len(target_edge.tails) > max_rule_size:
 				continue
 			target_nt_count = len([node for node in target_edge.tails if not node.is_terminal(target_root)])
@@ -363,22 +364,102 @@ def find_child_sets(nodes, span, max_nt_count):
 
 def add_t2s_virtual_nodes(target_tree, source_tree, are_aligned):
 	aligned_spans = find_aligned_spans(target_tree, source_tree.nodes, are_aligned)
-	for aligned_span in sorted(aligned_spans, key=lambda span: span.end - span.start):
-		# Note: virtual_node should == target_tree.root when aligned_span covers the whole sentence
+	for aligned_span in sorted(aligned_spans, key=lambda span: span.end - span.start):	
 		virtual_node = NodeWithSpan('X', aligned_span, False, True)
+		assert aligned_span != target_tree.start.span or virtual_node == target_tree.start
 		target_tree.nodes.add(virtual_node)
 
 def add_t2s_virtual_edges(target_tree, source_tree, are_aligned):
 	aligned_spans = find_aligned_spans(target_tree, source_tree.nodes, are_aligned)
 	for aligned_span in sorted(aligned_spans, key=lambda span: span.end - span.start):
-		# Note: virtual_node should == target_tree.root when aligned_span covers the whole sentence
 		virtual_node = NodeWithSpan('X', aligned_span, False, True)
+		# Note: virtual_node should == target_tree.root when aligned_span covers the whole sentence
+		assert aligned_span != target_tree.start.span or virtual_node == target_tree.start
 		valid_nodes = set([node for node in target_tree.nodes if node.is_terminal_flag or node.span in aligned_spans])
 		for child_set in find_child_sets(valid_nodes, aligned_span, args.max_rule_size + 1000):
 			if virtual_node in child_set:
 				continue
 			virtual_edge = Edge(virtual_node, tuple(child_set))
 			target_tree.add(virtual_edge)
+
+def add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments, t2s_node_alignments, target_terminals):
+	def project(source_node):
+		alignments = s2t_node_alignments[source_node]
+		assert len(alignments) <= 1 # TODO: Could unaligned words invalidate this?
+		return list(alignments)[0] if len(alignments) == 1 else None
+
+	# Derivation[source_node] will hold the minimal way(s) of representing source_node using minimal constituents.
+	# For terminals and well-aligned NTs, there is only one such way: using the node itself.
+	# For NTs that are not node aligned, we will find sets of minimally aligned children that cover source_node.
+	derivations = {}
+	for source_node in source_tree.topsort():
+		derivations[source_node] = []
+		if source_node.is_terminal_flag:
+			derivation = (source_node,)
+			derivations[source_node].append((derivation, []))
+		elif project(source_node) != None:
+			derivation = (source_node,)
+			derivations[source_node].append((derivation, []))
+		else:	
+			for edge in source_tree.head_index[source_node]:
+				for subset in enumerate_subsets([derivations[tail] for tail in edge.tails]):
+					derivation = reduce(operator.add, [derivation for derivation, _ in subset])
+					skipped_edges = reduce(operator.add, [edges for _, edges in subset])
+					for node in derivation:
+						assert len(s2t_node_alignments[node]) >= 1 or node.is_terminal_flag
+					derivations[source_node].append((derivation, [edge] + skipped_edges))	
+
+	for edge in source_tree.edges.copy():
+		source_head = edge.head
+		for target_head in s2t_node_alignments[source_head]:
+			for source_subset in enumerate_subsets([derivations[tail] for tail in edge.tails]):
+				source_tails = reduce(operator.add, [derivation for derivation, _ in source_subset])
+				composed_edge = Edge(source_head, source_tails)
+				skipped_edges = reduce(operator.add, [edges for _, edges in source_subset])
+				if len(skipped_edges) > 0:
+					composed_edge.composed_edges = tuple([edge] + skipped_edges)
+					composed_edge.is_composed = True
+					assert len(edge.composed_edges) == 0
+				if composed_edge != edge:
+					assert len(skipped_edges) > 0
+					source_tree.add(composed_edge)
+				for target_subset in enumerate_subsets([list(s2t_node_alignments[tail]) for tail in source_tails if not tail.is_terminal_flag]):
+					target_tails = target_subset
+					for i in range(*target_head.span):
+						is_included = False
+						for tail in target_tails:
+							if i >= tail.span.start and i < tail.span.end:
+								is_included = True
+								break
+						if not is_included:
+							target_tails.append(target_terminals[i])
+					target_tails = tuple(sorted(target_tails, key=lambda node: node.span.start))
+					virtual_edge = Edge(target_head, target_tails)
+					target_tree.add(virtual_edge)
+
+	return
+		
+	for source_node in source_tree.topsort():
+		head = project(source_node)
+		if head == None:
+			print >>sys.stderr, str(source_node), 'is unaligned'
+			continue
+		else:
+			print >>sys.stderr, str(source_node), 'is aligned to', str(head)
+		for edge in source_tree.head_index[source_node]:
+			tails = []
+			valid = True
+			for tail in edge.tails:
+				projection = project(tail)
+				if projection is None:
+					valid = False
+					break
+				tails.append(projection)
+			if valid:
+				virtual_edge = Edge(head, tuple(tails))
+				target_tree.add(virtual_edge)
+				print >>sys.stderr, head, tails
+
 
 # Takes two hypergraphs representing source and target trees, as well as a word
 # alignment, and finds all rules extractable there from.
@@ -409,20 +490,23 @@ def handle_sentence(source_tree, target_tree, alignment):
 			target_tree.add_virtual_nodes(args.virtual_size, False)
 		else:
 			aligned_spans = set([node.span for node in t2s_node_alignments.keys()])
-			in_aligned_spans = lambda source_span, target_span: target_span in aligned_spans
-			add_t2s_virtual_edges(target_tree, source_tree, in_aligned_spans)
+			#in_aligned_spans = lambda source_span, target_span: target_span in aligned_spans
+			#add_t2s_virtual_edges(target_tree, source_tree, in_aligned_spans)
 
 		# Add composed edges to the tree structures
 		if args.minimal_rules:
-			s2t_aligned_nodes = set(node for node, alignments in s2t_node_alignments.iteritems() if len(alignments) > 0)
-			t2s_aligned_nodes = set(node for node, alignments in t2s_node_alignments.iteritems() if len(alignments) > 0)
-			source_tree.add_minimal_composed_edges(args.max_rule_size, s2t_aligned_nodes)
-			if not args.t2s:
-				target_tree.add_minimal_composed_edges(args.max_rule_size, t2s_aligned_nodes)
+			if False:
+				s2t_aligned_nodes = set(node for node, alignments in s2t_node_alignments.iteritems() if len(alignments) > 0)
+				t2s_aligned_nodes = set(node for node, alignments in t2s_node_alignments.iteritems() if len(alignments) > 0)
+				source_tree.add_minimal_composed_edges(args.max_rule_size, s2t_aligned_nodes)
+				if not args.t2s:
+					target_tree.add_minimal_composed_edges(args.max_rule_size, t2s_aligned_nodes)
 		else:
 			source_tree.add_composed_edges(args.max_rule_size)
 			if not args.t2s:
 				target_tree.add_composed_edges(args.max_rule_size)
+
+		add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments, t2s_node_alignments, target_terminals)
 
 		# Finally extract rules
 		formatter = GrexRuleFormatter() if not args.t2s else CdecT2SRuleFormatter()
