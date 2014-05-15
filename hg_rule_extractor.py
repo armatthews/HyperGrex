@@ -92,6 +92,10 @@ def read_tree_file(stream):
 		if not line:
 			break
 
+		if '[' in line or ']' in line:
+			print >>sys.stderr, 'Square brackets found in input. Please escape these to -LSB- and -RSB-'
+			sys.exit(1)
+
 		line = line.decode('utf-8').strip()
 		if not line:
 			yield combine_trees(trees_to_combine)
@@ -117,6 +121,9 @@ def read_tree_file(stream):
 def read_string_file(stream):
 	while True:
 		line = stream.readline()
+		if '[' in line or ']' in line:
+			print >>sys.stderr, 'Square brackets found in input. Please escape these to -LSB- and -RSB-'
+			sys.exit(1)
 		if not line:
 			break
 		line = line.decode('utf-8').strip()
@@ -506,7 +513,7 @@ def handle_sentence(source_tree, target_tree, alignment, formatter):
 			if not args.t2s:
 				target_tree.add_composed_edges(args.max_rule_size)
 
-		#add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments, t2s_node_alignments, target_terminals)
+		add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments, t2s_node_alignments, target_terminals)
 
 		# Finally extract rules
 		for source_node, target_nodes in s2t_node_alignments.copy().iteritems():
