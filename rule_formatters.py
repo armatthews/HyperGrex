@@ -126,3 +126,25 @@ class CdecT2SRuleFormatter:
 		feats = {'count': weight, 'sent_count': 1}
 		feats = ' '.join('%s=%s' % (name, str(value)) for name, value in feats.iteritems())
 		return ' ||| '.join([source_tree, target_side, ' '.join('%d-%d' % link for link in alignments), feats])
+
+class CdecT2TRuleFormatter(CdecT2SRuleFormatter):
+	def format_rule(self, rule):
+		# Unpack the rule structure
+		source_edge, target_edge, s2t_rule_part_map, t2s_rule_part_map, alignments, weight = rule
+
+		source_structure = source_edge.composed_edges if source_edge.is_composed else [source_edge]
+		source_hg = CdecT2SRuleFormatter.build_mini_hypergraph(source_structure)
+		source_tree = source_hg.to_tree_string()
+
+		target_label = '[%s]' % target_edge.head.label
+		target_structure = target_edge.composed_edges if target_edge.is_composed else [target_edge]
+		target_hg = CdecT2SRuleFormatter.build_mini_hypergraph(target_structure)
+		label_map = {}
+		for node, (_, index) in t2s_rule_part_map.iteritems():
+			label_map[node] = '[%s,%d]' % (node.label, index)
+		target_side = ' '.join(label_map[node] if node in label_map else node.label for node in CdecT2SRuleFormatter.find_terminals(target_hg))
+		
+		feats = {'count': weight, 'sent_count': 1}
+		feats = ' '.join('%s=%s' % (name, str(value)) for name, value in feats.iteritems())
+		return ' ||| '.join([target_label, source_tree, target_side, ' '.join('%d-%d' % link for link in alignments), feats])
+

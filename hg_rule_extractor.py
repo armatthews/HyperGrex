@@ -3,7 +3,7 @@ import sys
 import math
 import heapq
 import operator
-from rule_formatters import RuleFormatter, GrexRuleFormatter, CdecT2SRuleFormatter
+from rule_formatters import RuleFormatter, GrexRuleFormatter, CdecT2SRuleFormatter, CdecT2TRuleFormatter
 from tree import TreeNode, NonTerminalNode, TerminalNode
 from collections import defaultdict
 from helpers import computeSpans, Alignment, compute_generations, Rule, Span, enumerate_subsets
@@ -463,7 +463,7 @@ def add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments
 
 # Takes two hypergraphs representing source and target trees, as well as a word
 # alignment, and finds all rules extractable there from.
-def handle_sentence(source_tree, target_tree, alignment):
+def handle_sentence(source_tree, target_tree, alignment, formatter):
 		# Identify the terminal nodes in both trees
 		source_terminals = sorted([node for node in source_tree.nodes if node.is_terminal_flag], key=lambda node: node.span.start)
 		target_terminals = sorted([node for node in target_tree.nodes if node.is_terminal_flag], key=lambda node: node.span.start)
@@ -506,16 +506,25 @@ def handle_sentence(source_tree, target_tree, alignment):
 			if not args.t2s:
 				target_tree.add_composed_edges(args.max_rule_size)
 
-		add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments, t2s_node_alignments, target_terminals)
+		#add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments, t2s_node_alignments, target_terminals)
 
 		# Finally extract rules
-		formatter = GrexRuleFormatter() if not args.t2s else CdecT2SRuleFormatter()
 		for source_node, target_nodes in s2t_node_alignments.copy().iteritems():
 			for target_node in target_nodes:
 				if not source_node.is_terminal(source_tree) and not target_node.is_terminal(target_tree):
 					for rule in extract_rules(source_node, target_node, s2t_node_alignments, t2s_node_alignments, source_tree, target_tree, args.max_rule_size, source_terminals, target_terminals, s2t_word_alignments, t2s_word_alignments):
 						print formatter.format_rule(rule).encode('utf-8')
 		sys.stdout.flush()
+
+def get_formatter(formatter_type):
+	if formatter_type == 'grex':
+		return GrexRuleFormatter()
+	elif formatter_type == 'cdec':
+		return CdecT2SRuleFormatter()
+	elif formatter_type == 'cdec_t2t':
+		return CdecT2TRuleFormatter()
+	else:
+		assert False and 'Unknown formatter type: %s' % formatter_type
 
 if __name__ == "__main__":
 	import argparse
@@ -531,11 +540,16 @@ if __name__ == "__main__":
         group.add_argument('--s2t', action='store_true', help='String-to-tree mode. Target side file should contain (tokenized) sentences instead of trees.')
         group.add_argument('--t2s', action='store_true', help='Tree-to-string mode. Source side file should contain (tokenized) sentences instead of trees.')
         parser.add_argument('--debug', '-d', action='store_true', help='Debug mode')
+	parser.add_argument('--output_format', '-f', required=False, choices=['grex', 'cdec', 'cdec_t2t'], help='Output grammar format. Options include grex (default for tree-to-tree), cdec (default for tree-to-string), and cdec_t2t')
         args = parser.parse_args()
 
 	source_tree_file = open(args.source_trees)
 	target_tree_file = open(args.target_trees)
 	alignment_file = open(args.alignments)
+
+	if args.output_format == None:
+		args.output_format = 'grex' if not args.t2s else 'cdec'
+	formatter = get_formatter(args.output_format)
 
 	read_source_file = read_tree_file if not args.s2t else read_string_file
 	read_target_file = read_tree_file if not args.t2s else read_string_file
@@ -548,7 +562,7 @@ if __name__ == "__main__":
 			pass
 		else:
 			try:
-				handle_sentence(source_tree, target_tree, alignment)
+				handle_sentence(source_tree, target_tree, alignment, formatter)
 			except Exception as e:
 				if args.debug:
 					raise
