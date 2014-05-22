@@ -272,6 +272,7 @@ def minimize_alignments(source_root, target_root, s2t, t2s):
 	taken_target_nodes = set()
 	minimal_s2t = defaultdict(set)
 	minimal_t2s = defaultdict(set)
+
 	for source_node in source_root.topsort():
 		target_nodes = s2t[source_node]
 		target_node = find_best_minimal_alignment(source_node, target_nodes, taken_target_nodes, target_generations)
@@ -502,20 +503,18 @@ def handle_sentence(source_tree, target_tree, alignment, formatter):
 				add_t2s_virtual_edges(target_tree, source_tree, in_aligned_spans)
 
 		# Add composed edges to the tree structures
-		if args.minimal_rules:
-			if False:
+		if args.minimal_rules:	
+			if not args.t2s:
 				s2t_aligned_nodes = set(node for node, alignments in s2t_node_alignments.iteritems() if len(alignments) > 0)
 				t2s_aligned_nodes = set(node for node, alignments in t2s_node_alignments.iteritems() if len(alignments) > 0)
-				source_tree.add_minimal_composed_edges(args.max_rule_size, s2t_aligned_nodes)
-				if not args.t2s:
-					target_tree.add_minimal_composed_edges(args.max_rule_size, t2s_aligned_nodes)
+				source_tree.add_minimal_composed_edges(args.max_rule_size, s2t_aligned_nodes)	
+				target_tree.add_minimal_composed_edges(args.max_rule_size, t2s_aligned_nodes)
+			else:
+				add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments, t2s_node_alignments, target_terminals)
 		else:
 			source_tree.add_composed_edges(args.max_rule_size)
 			if not args.t2s:
 				target_tree.add_composed_edges(args.max_rule_size)
-
-		if args.t2s and args.minimal_rules:
-			add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments, t2s_node_alignments, target_terminals)
 
 		print >>sys.stderr, 'Source tree contains %d nodes and %d edges' % (len(source_tree.nodes), len(source_tree.edges))
 		print >>sys.stderr, 'Target tree contains %d nodes and %d edges' % (len(target_tree.nodes), len(target_tree.edges))
