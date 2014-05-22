@@ -392,7 +392,7 @@ def add_t2s_virtual_edges(target_tree, source_tree, are_aligned):
 def add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments, t2s_node_alignments, target_terminals):
 	def project(source_node):
 		alignments = s2t_node_alignments[source_node]
-		assert len(alignments) <= 1 # TODO: Could unaligned words invalidate this?
+		#assert len(alignments) <= 1 # TODO: Could unaligned words invalidate this?
 		return list(alignments)[0] if len(alignments) == 1 else None
 
 	# Derivation[source_node] will hold the minimal way(s) of representing source_node using minimal constituents.
@@ -441,7 +441,7 @@ def add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments
 						if not is_included:
 							target_tails.append(target_terminals[i])
 					target_tails = tuple(sorted(target_tails, key=lambda node: node.span.start))
-					virtual_edge = Edge(target_head, target_tails)
+					virtual_edge = Edge(target_head, target_tails)	
 					target_tree.add(virtual_edge)
 
 	return
@@ -497,8 +497,9 @@ def handle_sentence(source_tree, target_tree, alignment, formatter):
 			target_tree.add_virtual_nodes(args.virtual_size, False)
 		else:
 			aligned_spans = set([node.span for node in t2s_node_alignments.keys()])
-			#in_aligned_spans = lambda source_span, target_span: target_span in aligned_spans
-			#add_t2s_virtual_edges(target_tree, source_tree, in_aligned_spans)
+			if not args.minimal_rules:
+				in_aligned_spans = lambda source_span, target_span: target_span in aligned_spans
+				add_t2s_virtual_edges(target_tree, source_tree, in_aligned_spans)
 
 		# Add composed edges to the tree structures
 		if args.minimal_rules:
@@ -513,7 +514,11 @@ def handle_sentence(source_tree, target_tree, alignment, formatter):
 			if not args.t2s:
 				target_tree.add_composed_edges(args.max_rule_size)
 
-		add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments, t2s_node_alignments, target_terminals)
+		if args.t2s and args.minimal_rules:
+			add_experimental_virtual_edges(target_tree, source_tree, s2t_node_alignments, t2s_node_alignments, target_terminals)
+
+		print >>sys.stderr, 'Source tree contains %d nodes and %d edges' % (len(source_tree.nodes), len(source_tree.edges))
+		print >>sys.stderr, 'Target tree contains %d nodes and %d edges' % (len(target_tree.nodes), len(target_tree.edges))
 
 		# Finally extract rules
 		for source_node, target_nodes in s2t_node_alignments.copy().iteritems():
