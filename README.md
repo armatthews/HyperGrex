@@ -21,9 +21,23 @@ The options are:
  * `-m` indicates that *minimal* (non-composed) rules should be extracted
  * `-s 1000` indicates that rules my have up to 1000 symbols in them (effectively, this disables any size-based filtering)
 
+The above command produces the following rules:
+    (PP [P] (NP (DT l') [NN])) ||| [1] [2] ||| 0-0 2-1 ||| count=1.0 sent_count=1
+    (VP (VB a) [VBN] [PP]) ||| [1] [2] ||| 1-0 2-1 ||| count=1.0 sent_count=1
+    (P à) ||| to ||| 0-0 ||| count=1.0 sent_count=1
+    (S [NP] [VP] [PUNC]) ||| [1] [2] [3] ||| 0-0 1-1 2-2 ||| count=1.0 sent_count=1
+    (PUNC .) ||| . ||| 0-0 ||| count=1.0 sent_count=1
+    (VBN marché) ||| walked ||| 0-0 ||| count=1.0 sent_count=1
+    (JJ petit) ||| young ||| 0-0 ||| count=1.0 sent_count=1
+    (DT le) ||| the ||| 0-0 ||| count=1.0 sent_count=1
+    (NP [DT] [JJ] [NN]) ||| [1] [2] [3] ||| 0-0 1-1 2-2 ||| count=1.0 sent_count=1
+    (NN école) ||| school ||| 0-0 ||| count=1.0 sent_count=1
+    (NN garçon) ||| boy ||| 0-0 ||| count=1.0 sent_count=1
+
 ## For further information
 
  * For information on tree-to-string (xRs) translation rules, see
+   * [the `cdec` documentation](http://www.cdec-decoder.org/concepts/xrs.html)
    * [this paper by GHKM](http://www.aclweb.org/anthology/N/N04/N04-1035.pdf), and
    * [this paper by Liang Huang](http://www.cis.upenn.edu/~lhuang3/amta06-sdtedl.pdf)
    * [this follow up paper by Galley et al.](http://www.cs.columbia.edu/nlp/papers/2006/galley_al_06.pdf).
