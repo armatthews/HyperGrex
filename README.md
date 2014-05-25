@@ -21,7 +21,8 @@ The options are:
  * `-m` indicates that *minimal* (non-composed) rules should be extracted
  * `-s 1000` indicates that rules my have up to 1000 symbols in them (effectively, this disables any size-based filtering)
 
-The above command produces the following rules:
+The above command writes the following rules to the file `rules.t2s`:
+
     (PP [P] (NP (DT l') [NN])) ||| [1] [2] ||| 0-0 2-1 ||| count=1.0 sent_count=1
     (VP (VB a) [VBN] [PP]) ||| [1] [2] ||| 1-0 2-1 ||| count=1.0 sent_count=1
     (P à) ||| to ||| 0-0 ||| count=1.0 sent_count=1
