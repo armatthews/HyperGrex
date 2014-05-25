@@ -7,7 +7,7 @@ A hypergraph-based syntactic translation grammar extractor for use with [cdec](h
 
  * extract various kinds (tree-to-string, tree-to-tree, string-to-tree) of tree transduction rules from aligned parallel corpora with parses on one or both sides
  * tranduction rules can be *minimal* or *composed*, with limits on the size and complexity of the rules
- * extract rules from parse forests or *k*-kbest lists of parses
+ * extract rules from parse forests or (*k*-best) lists of parses
  * score extracted rules with a variety of standard features
 
 ## Example tree-to-string extraction
