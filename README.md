@@ -35,6 +35,12 @@ The above command writes the following rules to the file `rules.t2s`:
     (NN école) ||| school ||| 0-0 ||| count=1.0 sent_count=1
     (NN garçon) ||| boy ||| 0-0 ||| count=1.0 sent_count=1
 
+## Adding features to rules
+
+    ./t2s_score/score.sh rules.t2s test_data/sgt-params.txt test_data/tgs-params.txt
+
+The second and third files are lexical translation probabilities.
+
 ## For further information
 
  * For information on tree-to-string (xRs) translation rules, see
