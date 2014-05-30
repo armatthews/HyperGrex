@@ -1,13 +1,23 @@
 import re
 import sys
 import argparse
+import math
 from collections import defaultdict
 
 def read_lex_file(stream, source_first):
 	probs = defaultdict(float)
+	are_log_probs = True
+	lc = 0
 	for line in stream:
+		lc += 1
 		src, tgt, prob = line.strip().split()[:3]
+		if src == '<eps>': src = 'NULL'
+		if tgt == '<eps>': tgt = 'NULL'
 		prob = float(prob)
+		if lc == 1 and prob > 0.0:
+			are_log_probs = False
+		if are_log_probs:
+			prob = math.exp(prob)
 		if not source_first:
 			src, tgt = tgt, src
 		probs[src, tgt] = prob

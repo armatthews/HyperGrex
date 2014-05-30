@@ -1,0 +1,2 @@
+(S (NP (DT le) (JJ petit) (NN garçon)) (VP (VB a) (VBN marché) (PP (P à) (NP (DT l') (NN école)))) (PUNC .))
+(S (NP (NP (DT l') (NN italie)) (CC et) (NP (DT l') (NN espagne))) (VP (VB ont) (VBN sombré) (PP (P dans) (NP (DT une) (JJ grave) (NN récession)))) (PUNC .))
