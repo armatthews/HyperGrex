@@ -305,6 +305,8 @@ def build_word_alignment_maps(source_terminals, target_terminals, alignment):
 	s2t_word_alignments = defaultdict(list)
 	t2s_word_alignments = defaultdict(list)
 	for s, t in alignment.links:
+		if s not in range(len(source_terminals)) or t not in range(len(target_terminals)):
+			print >>sys.stderr, 'Invalid alignment link: %d-%d' % (s, t)
 		s_node = source_terminals[s]
 		t_node = target_terminals[t]
 		s2t_word_alignments[s_node].append(t_node)

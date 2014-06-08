@@ -114,6 +114,9 @@ class Hypergraph:
 
 	def add(self, e, weight=1.0):
 		assert weight >= 0.0 and weight <= 1.0
+		if e.head in e.tails:
+			print >>sys.stderr, 'Warning: Ignoring self-referential edge %s' % repr(e)
+			return
 		self.nodes.add(e.head)
 		self.nodes.update(e.tails)
 		self.edges.add(e)
