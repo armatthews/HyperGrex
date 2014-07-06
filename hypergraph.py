@@ -114,6 +114,9 @@ class Hypergraph:
 
 	def add(self, e, weight=1.0):
 		assert weight >= 0.0 and weight <= 1.0
+		if e.head in e.tails:
+			print >>sys.stderr, 'Warning: Ignoring self-referential edge %s' % repr(e)
+			return
 		self.nodes.add(e.head)
 		self.nodes.update(e.tails)
 		self.edges.add(e)
@@ -245,7 +248,7 @@ class Hypergraph:
 			if not allow_recursive_vns:
 				break
 
-	def compose_edge(self, edge, max_size, minimal_only=False, aligned_nodes=[]):
+	def compose_edge(self, edge, max_size, minimal_only=False, aligned_nodes=[]):	
 		tail_choices = []
 		for tail in edge.tails:
 			choices = []
@@ -269,7 +272,7 @@ class Hypergraph:
 				
 						if len(child_edge.tails) <= max_size - len(edge.tails) + 1:
 							choices.append((child_edge.tails, self.weights[child_edge], child_edge))
-			tail_choices.append(choices)
+			tail_choices.append(choices)	
 
 		if len(tail_choices) > max_size:
 			return
@@ -289,16 +292,15 @@ class Hypergraph:
 				new_edge = Edge(edge.head, tuple(new_tails), True)
 				assert len(composed_edges) > 0
 				new_edge.composed_edges = tuple(composed_edges)
-				if edge.tails != new_edge.tails:					
-					self.add(new_edge, new_weight)	
+				if edge.tails != new_edge.tails:
+					self.add(new_edge, new_weight)
 		
 	def add_composed_edges(self, max_size):
 		for node in self.topsort():
 			for edge in self.head_index[node].copy():
 				self.compose_edge(edge, max_size)
 
-
-	def add_minimal_composed_edges(self, max_size, aligned_nodes):
+	def add_minimal_composed_edges(self, max_size, aligned_nodes):	
 		for node in self.topsort():
 			for edge in self.head_index[node].copy():
 				self.compose_edge(edge, max_size, True, aligned_nodes)
