@@ -1,0 +1,89 @@
+%\documentclass{pbml}
+\documentclass[nofonts]{pbml} % use default fonts
+%\documentclass[color]{pbml} % for color images and hypertext links
+
+\usepackage{graphicx}
+\usepackage{multicol}
+\usepackage{amssymb}
+\usepackage{natbib}
+\usepackage{euler}
+\usepackage{latexsym}
+\usepackage{verbatim}
+\usepackage{amsmath}
+\usepackage{tikz}
+\usepackage{wrapfig}
+\usepackage{colortbl}
+\usepackage{xcolor}
+\usetikzlibrary{fit,positioning}
+
+\newcommand{\ensuretext}[1]{#1}
+\newcommand{\mycomment}[3]{\ensuretext{\textcolor{#3}{[#1 #2]}}}
+\newcommand{\ammarker}{\ensuretext{\textcolor{blue}{\ensuremath{^{\textsc{A}}_{\textsc{M}}}}}}
+\newcommand{\am}[1]{\mycomment{\ammarker}{#1}{blue}}
+\newcommand{\cjmarker}{\ensuretext{\textcolor{red}{\ensuremath{^{\textsc{C}}_{\textsc{D}}}}}}
+\newcommand{\cjd}[1]{\mycomment{\cjmarker}{#1}{red}}
+\newcommand{\ignore}[1]{}
+\newcolumntype{C}{>{\centering\arraybackslash}p{0.6ex}}
+
+
+\begin{document}
+\title{Tree Transduction Tools for cdec}
+
+\institute{label1}{Carnegie Mellon University}
+\institute{label2}{University of Oxford}
+
+\author{
+  firstname=Austin,
+  surname=Matthews,
+  institute=label1,
+}
+\author{
+  firstname=Paul,
+  surname=Baltescu,
+  institute=label2,
+}
+\author{
+  firstname=Phil,
+  surname=Blunsom,
+  institute=label2,
+}
+\author{
+  firstname=Alon,
+  surname=Lavie,
+  institute=label1,
+}
+\author{
+  firstname=Chris,
+  surname=Dyer,
+  institute=label1,
+  corresponding=yes,
+  email={cdyer@cs.cmu.edu},
+  address={Language Technologies Institute\\Carnegie Mellon University\\Pittsburgh, PA 15213, United States}
+}
+
+\PBMLmaketitle
+
+\begin{abstract}
+We describe a collection of open source tools for learning
+tree-to-string and tree-to-tree transducers and the extensions to the
+cdec decoder that enable translation with these. Our modular,
+easy-to-extned tools extract rules from trees or forests aligned to
+strings and trees subject to different structural constraints. A fast,
+multithreaded implementation of the Cohn and Blunsom (2009) model for
+extracting compact tree-to-string rules is also included. The
+implementation of the tree composition algorithm used by cdec is
+described, and translation quality and decoding time results are
+presented. Our results add to the body of evidence suggesting that
+tree transduers are a compelling option for translation, particularly
+when decoding speed and translation model size are important.
+\end{abstract}
+
+\section{Introduction}
+
+\section*{Acknowledgements}
+This research is supported by \ldots
+
+\bibliography{mtm2014}
+
+\correspondingaddress
+\end{document}
