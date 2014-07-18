@@ -202,6 +202,7 @@ The remaining input arguments (hyperparameters, rule restrictions, etc.) are ini
 Our tool leverages the benefits of a multithreaded environment to speed up grammar induction. At every sampler iteration, each training sentence is dynamically allocated to one of the available threads. In our implementation, we use a hash-based implementation of a Chinese Restaurant Process (CRP) \citep{Teh2010} to efficiently compute the rule probabilities given by \autoref{eq:sampling}. The data structure is updated whenever one of the \texttt{expand} or \texttt{swap} operators is applied. To lock this data structure with every update would completely cancel the effect of parallelization, as all the basic operations performed by the sampler are dependent on the CRP. Instead, we distribute a copy of the CRP on every thread and synchronize the data structures at the end of each iteration. Although the CRPs diverge during an iteration through the training data, no negative effects are observed when inferring STSGs in multithreaded mode.
 
 \section{Hypergraph-based Grammar Extraction}
+\label{sec:hypergrex}
 In order to alleviate these problems, we introduce an alternative methodology for rule extraction.
 Instead of extracting rules from a pair of aligned \emph{trees}, we extract rules from a pair of
 aligned \emph{hypergraphs}.
@@ -209,13 +210,14 @@ aligned \emph{hypergraphs}.
 Note that any tree can easily be transformed into an equivalent hypergraph. To do this, simply replace
 each terminal and non-terminal with a labeled node. Then, instead of connecting each node to its children
 with one or more independent edges, create a hyperedge with its head at the parent node and a tail at each
-of the child nodes. An example of such a hypergraph is shown in Figure \ref{simplehgfig}.
+of the child nodes. An example of such a hypergraph is shown in Fig.~\ref{virtualnodefig}.
 
 \begin{figure}[ht!]
 \centering
-\includegraphics[scale=0.25]{simplehg.png}
-\caption{A pair of aligned trees, turned into hypergraphs. Non-terminal symbols are annotated with their half-open spans. \texttt{NP}$_{0,3}$ represents an \texttt{NP} over the span $[0,3)$.}
-\label{simplehgfig}
+\includegraphics[scale=0.25]{virtualnode.png}
+\caption{A pair of aligned trees, turned into hypergraphs. Non-terminal symbols are annotated with their half-open spans. \texttt{NP}$_{0,3}$ represents an \texttt{NP} over the span $[0,3)$.
+An example virtual node and its corresponding virtual edges is shown in red.}
+\label{virtualnodefig}
 \end{figure}
 
 The next step of the rule extraction process is to find pairs of aligned nodes in the hypergraphs.
@@ -250,8 +252,8 @@ we introduce one more type of hypergraph augmentation.
 \citet{hanneman2011general} allow for adjacent sibling non-terminal nodes to be merged into one \emph{virtual node}, which may then be node-aligned to opposite nodes,
 be they ``real'' or virtual. To enable this, we explicitly add virtual nodes to our hypergraph and connect them to their children with a hyperedge.
 Furthermore, for every hyperedge that contained all of the sibling nodes
-as non-terminal tails, we add a duplicate hyperedge that uses the new virtual node instead. For example, in figure \ref{virtualnodefig}, we have added a new non-terminal node
-labeled \texttt{VB3s+VBN}$_{3,5}$ to the hypergraph. This node represents the fusion of the \texttt{VB3s}$_{3,4}$ and \texttt{VBN}$_{4,5}$ nodes.
+as non-terminal tails, we add a duplicate hyperedge that uses the new virtual node instead. For example, in Fig.~\ref{virtualnodefig},
+we have added a new non-terminal node labeled \texttt{VB3s+VBN}$_{3,5}$ to the hypergraph. This node represents the fusion of the \texttt{VB3s}$_{3,4}$ and \texttt{VBN}$_{4,5}$ nodes.
 We then add a hyperedge headed by the new \texttt{VB3s+VBN}$_{3,5}$ with tails to both \texttt{VB3s}$_{3,4}$ and \texttt{VBN}$_{4,5}$.
 Furthermore, we make a copy of the edge \texttt{VP}$_{3,7}$ $\rightarrow$ \texttt{VB3s}$_{3,4}$ \texttt{VBN}$_{4,5}$ \texttt{PP}$_{5,7}$, and replace the
 \texttt{VB3s}$_{3,4}$ and \texttt{VBN}$_{4,5}$ tail nodes with a single tail, \texttt{VB3s+VBN}$_{3,5}$, to form the new edge
@@ -260,17 +262,52 @@ Furthermore, we make a copy of the edge \texttt{VP}$_{3,7}$ $\rightarrow$ \textt
 \texttt{[VP::VP]} $\rightarrow$ \texttt{[VBD,1] [PP,2]  ||| [VB3s+VBN,1] [PP,2]}, both of which were unextractable without the virtual node.
 
 With the addition of virtual nodes, our work is directly comperable to \citet{hanneman2011general}, while being more modular, extensible and provably correct.
-One particularly interesting extension our hypergraph formulation allows is the use of parse \emph{forests} rather than $1$-best trees.
-\am{To be continued...}
+One particularly interesting extension our hypergraph formulation allows is the use of weighted parse \emph{forests} rather than $1$-best trees.
+This helps our rule extractor to overcome parser errors and allows us to easily handle cases of ambiguity, in which two or more trees may be equally likely
+for a given input sentence. In Section~\ref{sec:experiments} we will show that this ability alone can add up to +1.1 \textsc{BLEU} in a Chinese--English system.
 
+\section{Experiments}
+\label{sec:experiments}
+We tested our rule learner on the FBIS Chinese--English corpus (LDC2003E14), which consists of 302,966 sentence pairs or 9,350,506 words on the English side.
+We first obtain $k$-best parses for both sides of FBIS using the Berkeley Parser \am{cite} and align the corpus using \texttt{fastalign} \am{cite}.
+We use a 5-gram language model built with KenLM \am{cite} on version four of the English GigaWord corpus plus the target side of FBIS, smoothed with improved Kneser-Ney smoothing \am{cite}.
+For each set up we extract rules using \texttt{grex} \cite{hanneman2011general} or our new tool.
+When using our tool we have the option of simply using $1$-best trees to compare directly to \texttt{grex}, or using the weighted forests consisting of all of Berkeley's $k$-best parses on
+the source side, the target side, or both. For these experiments we use $k=10$.
+Each system is tuned on mt06 using Hypergraph MERT \am{cite}.
+We then test each system on both mt03 and mt06, evaluting with MultEval \am{cite}.
 
-
+Details concerning the size of the extracted grammars can be found in Table \ref{grammarsizes}.
+Translation quality results are shown in Table \ref{bleuresults}.
 
 \begin{figure}[ht!]
 \centering
-\includegraphics[scale=0.25]{virtualnode.png}
-\caption{An example virtual node and its corresponding virtual edges.}
-\label{virtualnodefig}
+\begin{tabular}{r c c c c c}
+Extractor & $k_s$ & $k_t$ & Instances & Types & Avg. Sent. Grammar \\
+\hline
+\texttt{grex} & 1 & 1 & 24.9M\footnote{This indicates that \\texttt{grex} failed to extract certain valid rules. This conclusion was validated by our team, and confirmed with the authors of \cite{hanneman2011general}.} & 11.8M & 210K \\
+\texttt{HyperGrex} &  1 &  1 & 25.9M & 12.7M & 240K \\
+\texttt{HyperGrex} &  1 & 10 & 33.3M & 17.7M & 398K \\
+\texttt{HyperGrex} & 10 &  1 & 33.7M & 17.9M & 397K \\
+\texttt{HyperGrex} & 10 & 10 & 48.7M & 24.3M & 541K \\
+\end{tabular}
+\caption{Grammar sizes using different grammar extraction set ups.
+$k_s$ ($k_t$) represents the number of source (target) trees used.}
+\label{grammarsizes}
+\end{figure}
+
+\begin{figure}[ht!]
+\centering
+\begin{tabular}{r c c c c c}
+Extractor & $k_s$ & $k_t$ & mt06 & mt03 & mt08 \\
+\texttt{grex}      &  1 &  1 & 29.6 & 31.8 & 23.4 \\
+\texttt{HyperGrex} &  1 &  1 & 30.1 & 32.4 & 24.0 \\
+\texttt{HyperGrex} &  1 & 10 & \textbf{30.4} & \textbf{32.9} & \textbf{24.3} \\
+\texttt{HyperGrex} & 10 &  1 & 29.5 & 32.0 & 23.1 \\
+\texttt{HyperGrex} & 10 & 10 & xx.x & xx.x & xx.x \\
+\end{tabular}
+\caption{\textsc{BLEU} results on mt06 (tuning set), mt03, and mt08 using various grammar extraction configurations.}
+\label{bleuresults}
 \end{figure}
 
 \section*{Acknowledgements}
