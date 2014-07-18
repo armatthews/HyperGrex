@@ -90,7 +90,7 @@ when decoding speed and translation model size are important.
 %This research is supported by \ldots
 
 \section{Tree to String Transducers}
-Tree-to-string transducers that define relations on strings and trees are a popular formalism for capturing translational equivalence where syntactic tree structures are available in either the source or target language \citep{graehl:2008,Galley2004,rounds:1970,thatcher:1970}. The tools described in this paper are a restricted version of top-down tree transducers that support multi-level tree fragments on one side and strings on the other, with no copying or deletion \citep{huang:2006,Cohn2009}. Such transducers can elegantly capture syntactic regularities in translation. For example see Fig.~\ref{fig:exxrs}, which gives the rules necessary to translate between English (an SVO language with ditransitive constructions) and Welsh (a VSO language with prepositional datives).
+Tree-to-string transducers that define relations on strings and trees are a popular formalism for capturing translational equivalence where syntactic tree structures are available in either the source or target language \citep{graehl:2008,Galley2004,rounds:1970,thatcher:1970}. The tools described in this paper are a restricted version of top-down tree transducers that support multi-level tree fragments on one side and strings on the other, with no copying or deletion \citep{huang:2006,Cohn2009}. Such transducers can elegantly capture syntactic regularities in translation. For example see Fig.~\ref{fig:exxrs}, which gives the rules necessary to translate between English (an SVO language with ditransitive verbs) and Welsh (a VSO language with prepositional datives).
 \begin{figure}[t]
 \vspace{-.4cm}
 \begin{minipage}[t]{0.45\linewidth}
@@ -163,7 +163,13 @@ The {\tt cdec} decoder \citep{Dyer_etal_2010} has a modular decoder architecture
 
 The original {\tt cdec} implementation contained hypergraph generators based on a variety of translation backends, although SCFG translation is the most widely used \citep{chiang:2007}. In this section, we describe the tree-to-string algorithm that generates a translation forest given a source language parse tree and a tree-to-string transducer.
 
-The construction of the hypergraph takes place by composing the input tree with the tree-to-string transducer using a top down, recursive algorithm. Intuitively, the algorithm matches all rules in the transducer that start at a given node in the input tree and match at least one complete rewrite in the source tree. Any variables that were used in the match are then recursively processed until the entire input tree is completed. To make this process efficient, the tree side of the input transducer is determinized by depth-first, left-to-right factoring---this process is analogous to left factoring a context-free grammar \citep{klein:2001}. By matching the input tree in the same depth-first, left-to-right order...
+The construction of the hypergraph takes place by composing the input tree with the tree-to-string transducer using a top down, recursive algorithm. Intuitively, the algorithm matches all rules in the transducer that start at a given node in the input tree and match at least one complete rewrite in the source tree. Any variables that were used in the match are then recursively processed until the entire input tree is completed. To make this process efficient, the tree side of the input transducer is determinized by depth-first, left-to-right factoring---this process is analogous to left factoring a context-free grammar \citep{klein:2001}. By representing the tree using the same depth-first, left-to-right representation, standard DFA intersection algorithms can be used to compute each step of the recursion. The DFA representation of a transducer (tree side) and an input tree (starting at nonterminal S) is shown in Fig.~\ref{fig:det}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[scale=0.5]{tree-as-dfa.pdf}
+\caption{\label{fig:det}DFA representation a tree transducer (above) and an example input tree (below). This transducer will transduce the input tree to the string \emph{x y z}.}
+\end{figure}
 
 \section{Bayesian Synchronous Tree to String Grammar Induction}
 \label{sec:bayes}
