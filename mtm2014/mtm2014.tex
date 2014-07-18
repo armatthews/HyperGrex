@@ -266,18 +266,18 @@ Furthermore, we make a copy of the edge \texttt{VP}$_{3,7}$ $\rightarrow$ \textt
 With the addition of virtual nodes, our work is directly comperable to \citet{hanneman2011general}, while being more modular, extensible and provably correct.
 One particularly interesting extension our hypergraph formulation allows is the use of weighted parse \emph{forests} rather than $1$-best trees.
 This helps our rule extractor to overcome parser errors and allows us to easily handle cases of ambiguity, in which two or more trees may be equally likely
-for a given input sentence. In Section~\ref{sec:experiments} we will show that this ability alone can add up to +1.1 \textsc{BLEU} in a Chinese--English system.
+for a given input sentence. In Section~\ref{sec:experiments} we will show that this ability alone can add up to +1.1 \textsc{BLEU} \cite{papineni2002bleu} in a Chinese--English system.
 
 \section{Experiments}
 \label{sec:experiments}
 We tested our rule learner on the FBIS Chinese--English corpus (LDC2003E14), which consists of 302,966 sentence pairs or 9,350,506 words on the English side.
-We first obtain $k$-best parses for both sides of FBIS using the Berkeley Parser \am{cite} and align the corpus using \texttt{fastalign} \am{cite}.
-We use a 5-gram language model built with KenLM \am{cite} on version four of the English GigaWord corpus plus the target side of FBIS, smoothed with improved Kneser-Ney smoothing \am{cite}.
+We first obtain $k$-best parses for both sides of FBIS using the Berkeley Parser\footnote{https://code.google.com/p/berkeleyparser/} and align the corpus using \texttt{fastalign} \cite{dyer-chahuneau-smith:2013:NAACL-HLT}.
+We use a 5-gram language model built with KenLM \cite{heafield2011kenlm} on version four of the English GigaWord corpus plus the target side of FBIS, smoothed with improved Kneser-Ney smoothing \am{kneser1995improved}.
 For each set up we extract rules using \texttt{grex} \cite{hanneman2011general} or our new tool.
 When using our tool we have the option of simply using $1$-best trees to compare directly to \texttt{grex}, or using the weighted forests consisting of all of Berkeley's $k$-best parses on
 the source side, the target side, or both. For these experiments we use $k=10$.
-Each system is tuned on mt06 using Hypergraph MERT \am{cite}.
-We then test each system on both mt03 and mt06, evaluting with MultEval \am{cite}.
+Each system is tuned on mt06 using Hypergraph MERT \cite{kumar2009efficient} towards BLEU.
+We then test each system on both mt03 and mt06, evaluting with MultEval \cite{clark2011better}, which calculates BLEU, METEOR \cite{denkowski2011meteor}, and TER \cite{snover2006study}.
 
 Details concerning the size of the extracted grammars can be found in Table \ref{grammarsizes}.
 Translation quality results are shown in Table \ref{bleuresults}.
