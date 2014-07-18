@@ -130,7 +130,7 @@ Tree-to-string transducers that define relations on strings and trees are a popu
 \end{verbatim}
 \end{small}
 
-\caption{\label{fig:exxrs}Example single-state transducer that transduces between the SVO English tree (upper right of figure) and its VSO Welsh translation: \emph{rhoddodd Ioan lyfr i mi}.}
+\caption{\label{fig:exxrs}Example single-state transducer that transduces between the SVIO English tree (upper right of figure) and its VSOP Welsh translation: \emph{rhoddodd Ioan lyfr i mi}.}
 \end{figure}
 \begin{figure}
 \begin{small}
@@ -146,7 +146,7 @@ q_0 : \textrm{(NN \emph{dog})} &\leftrightarrow \textrm{\emph{Hund}}
 \begin{verbatim}
   [Q0] ||| (S [NP] (VP [VB] [NP])) ||| [Q0,1] [Q0,2] [QACC,3] ||| lp=-2.9713
   [Q0] ||| (NP (DT the) [NN]) ||| der [Q0,1] ||| lp=-1.3443
-  [QACC] ||| (NP (DT the) [NN] ||| den [Q0,1] ||| lp=-2.9402
+  [QACC] ||| (NP (DT the) [NN]) ||| den [Q0,1] ||| lp=-2.9402
   [Q0] ||| (NN dog) ||| Hund ||| lp=-0.3171
 \end{verbatim}
 \end{small}
@@ -171,7 +171,7 @@ The construction of the hypergraph takes place by composing the input tree with 
 \caption{\label{fig:det}DFA representation of a tree transducer (above) and an input tree (middle). This transducer will transduce the input tree to the hypergraph (below) yielding a single string \emph{x y z}, using rules (r1) and (r3). Red octagons are closing parentheses.}
 \end{figure}
 
-To understand how this algorithm procedes on this particular input, the input tree DFA is matched against the `S' DFA. The output transductions are stored in the final states of the transducer DFA, and when a path is matched, an edge is added to the output hypergraph, one per matched path per translation option. Variables that were used in the input are then recursively processed, starting from the relevant transducer DFA (in this case, the `A' DFA will be invoked recursively).
+To understand how this algorithm procedes on this particular input, the input tree DFA is matched against the `S' DFA. The output transductions are stored in the final states of the transducer DFA, and for all final states in the transducer DFA that are reached in a final state of the input DFA, an edge is added to the output hypergraph, one per translation option. Variables that were used in the input DFA are then recursively processed, starting from the relevant transducer DFA (in this case since first (r3) will be used which has an A variable, then `A' DFA will then be invoked recursively).
 
 \section{Bayesian Synchronous Tree to String Grammar Induction}
 \label{sec:bayes}
@@ -202,6 +202,22 @@ The remaining input arguments (hyperparameters, rule restrictions, etc.) are ini
 /github
 
 Our tool leverages the benefits of a multithreaded environment to speed up grammar induction. At every sampler iteration, each training sentence is dynamically allocated to one of the available threads. In our implementation, we use a hash-based implementation of a Chinese Restaurant Process (CRP) \citep{Teh2010} to efficiently compute the rule probabilities given by \autoref{eq:sampling}. The data structure is updated whenever one of the \texttt{expand} or \texttt{swap} operators is applied. To lock this data structure with every update would completely cancel the effect of parallelization, as all the basic operations performed by the sampler are dependent on the CRP. Instead, we distribute a copy of the CRP on every thread and synchronize the data structures at the end of each iteration. Although the CRPs diverge during an iteration through the training data, no negative effects are observed when inferring STSGs in multithreaded mode.
+
+\subsection{Compact grammar experiments}
+The Bayesian grammar extractor we have just described is constructed to find compact grammars that explain a parallel corpus. We briefly discuss the performance of these grammars in a tree-to-string translation task relative to a standard Hiero baseline. Tab.~\ref{bleuresults_worm} summarizes the findings. Although tree-to-string system with minimal rules underperforms Hiero slightly, it uses orders of magnitude fewer rules---in fact the number of rules in the Hiero grammar \emph{filtered} for the 691-sentence test set is twice as large as the Bayesian grammar.
+
+\begin{figure}[ht!]
+\centering
+\begin{tabular}{r c l c}
+Extractor & iterations & rule count & mt08 \\
+Hiero & -- & 1.5M (filtered) & 27.9 \\
+HyperGrex minimal (\S\ref{sec:hypergrex}) & -- & 1.4M (unfiltered) & 26.5 \\
+Bayes (\S\ref{sec:bayes}) & 100 & 0.77M (unfiltered) & 26.5 \\
+Bayes (\S\ref{sec:bayes}) & 1,000 & 0.74M (unfiltered) & 26.9 \\
+\end{tabular}
+\caption{Comparing HyperGrex (minimal rules), the Bayesian extractor after different numbers of iterations, and Hiero.
+\label{bleuresults_worm}}
+\end{figure}
 
 \section{Hypergraph-based Grammar Extraction}
 \label{sec:hypergrex}
