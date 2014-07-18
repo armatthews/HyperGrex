@@ -113,8 +113,84 @@ Our implementation of the grammar induction algorithm is written in \texttt{C++}
 \item Two files containing the translation tables $p(s | t)$ and $p(t | s)$. These probabilities are used in the base distribution to weight the rules according to the source and target words they contain.
 \end{itemize}
 The remaining input arguments (hyperparameters, rule restrictions, etc.) are initialized with sensible default values. Running the binary with the \texttt{-{}-help} option will produce the complete list of arguments and a brief explanation for each. The tool produces several files as output, including one containing the set of rules together with their probabilities, computed based on the last set of sampled derivations. The documentation released with our code shows how to prepare the training data, run the tool and convert the output in the \texttt{cdec} format.
+/github
 
 Our tool leverages the benefits of a multithreaded environment to speed up grammar induction. At every sampler iteration, each training sentence is dynamically allocated to one of the available threads. In our implementation, we use a hash-based implementation of a Chinese Restaurant Process (CRP) \citep{Teh2010} to efficiently compute the rule probabilities given by \autoref{eq:sampling}. The data structure is updated whenever one of the \texttt{expand} or \texttt{swap} operators is applied. To lock this data structure with every update would completely cancel the effect of parallelization, as all the basic operations performed by the sampler are dependent on the CRP. Instead, we distribute a copy of the CRP on every thread and synchronize the data structures at the end of each iteration. Although the CRPs diverge during an iteration through the training data, no negative effects are observed when inferring STSGs in multithreaded mode.
+
+\section{Hypergraph-based Grammar Extraction}
+In order to alleviate these problems, we introduce an alternative methodology for rule extraction.
+Instead of extracting rules from a pair of aligned \emph{trees}, we extract rules from a pair of
+aligned \emph{hypergraphs}.
+
+Note that any tree can easily be transformed into an equivalent hypergraph. To do this, simply replace
+each terminal and non-terminal with a labeled node. Then, instead of connecting each node to its children
+with one or more independent edges, create a hyperedge with its head at the parent node and a tail at each
+of the child nodes. An example of such a hypergraph is shown in Figure \ref{simplehgfig}.
+
+\begin{figure}[ht!]
+\centering
+\includegraphics[scale=0.25]{simplehg.png}
+\caption{A pair of aligned trees, turned into hypergraphs. Non-terminal symbols are annotated with their half-open spans. \texttt{NP}$_{0,3}$ represents an \texttt{NP} over the span $[0,3)$.}
+\label{simplehgfig}
+\end{figure}
+
+The next step of the rule extraction process is to find pairs of aligned nodes in the hypergraphs.
+We will call a source node $S$ and a target node $T$ \emph{node-aligned} if the following conditions hold.
+First, if $S$ and $T$ must either both be non-terminals or both be terminals.
+Aligning a terminal to a non-terminal or vice-versa is disallowed.
+Second, there must be at least one alignment link from a terminal dominated by $S$ to a terminal dominated by $T$.
+Third, there must be no alignment links from terminals dominated by $S$ to terminals outside of $T$ or vice-versa.
+
+We define a ``rule'' to be pair of hyperedges whose heads are node-aligned as per the above definition,
+and whose non-terminal children are node-aligned in a one-to-one manner.
+For example, in the sample tree, we see that the source node \texttt{PP}$_{4,6}$ is
+node-aligned to the target node \texttt{PP}$_{5,7}$. Furthermore, their children are also node-aligned
+one-to-one: \texttt{TO}$_{4,5}$ to \texttt{PREP}$_{5,6}$ and \texttt{NN}$_{5,6}$ to \texttt{NP}$_{5,7}$.
+Thus this pair of edges will give rise to the rule \texttt{[PP::PP]} $\rightarrow$ \texttt{[TO,1] [NN,2] ||| [PREP,1] [NP,2]}.
+Note that since there are no edges headed by terminals, so will not extract any rules with terminal heads.
+
+The above formulation allows the extraction of minimal rules that do not skip any internal structure, but does not yet
+include any mechanism for extracting \emph{composed} rules, which may skip levels of internal structure.
+To capture such rules, we first pre-process each input hypergraph, recursively adding hyperedges from non-overlapping sets
+of descendent nodes. For example, one hyperedge we add to the source side of the sample hypergraph pair is
+\texttt{VP}$_{3,6}$ $\rightarrow$ \texttt{walked TO}$_{4,5}$ NN$_{5,6}$. Independently, on the target side we add an edge
+\texttt{VP}$_{3,7}$ $\rightarrow$ \texttt{a march\'{e} PREP}$_{5,6}$ NP$_{5,7}$.
+
+Now when we extract rules, we will find these two edges to be corresponding -- their heads are node-aligned, and their non-terminal
+tails are also node-aligned one-to-one. Thus these two edges will combine to give the rule
+\texttt{[VP::VP]} $\rightarrow$ \texttt{walked [TO,1] [NN,2] ||| a march\'{e} [PREP,1] [NP,2]}, a composed rule not extractable
+by the bald algorithm.
+
+While using composed edges allows us to extract all permissible rules from a pair of aligned trees, to be consistent with previous work,
+we introduce one more type of hypergraph augmentation.
+\citet{hanneman2011general} allow for adjacent sibling non-terminal nodes to be merged into one \emph{virtual node}, which may then be node-aligned to opposite nodes,
+be they ``real'' or virtual. To enable this, we explicitly add virtual nodes to our hypergraph and connect them to their children with a hyperedge.
+Furthermore, for every hyperedge that contained all of the sibling nodes
+as non-terminal tails, we add a duplicate hyperedge that uses the new virtual node instead. For example, in figure \ref{virtualnodefig}, we have added a new non-terminal node
+labeled \texttt{VB3s+VBN}$_{3,5}$ to the hypergraph. This node represents the fusion of the \texttt{VB3s}$_{3,4}$ and \texttt{VBN}$_{4,5}$ nodes.
+We then add a hyperedge headed by the new \texttt{VB3s+VBN}$_{3,5}$ with tails to both \texttt{VB3s}$_{3,4}$ and \texttt{VBN}$_{4,5}$.
+Furthermore, we make a copy of the edge \texttt{VP}$_{3,7}$ $\rightarrow$ \texttt{VB3s}$_{3,4}$ \texttt{VBN}$_{4,5}$ \texttt{PP}$_{5,7}$, and replace the
+\texttt{VB3s}$_{3,4}$ and \texttt{VBN}$_{4,5}$ tail nodes with a single tail, \texttt{VB3s+VBN}$_{3,5}$, to form the new edge
+\texttt{VP}$_{3,7}$ $\rightarrow$ \texttt{VB3s+VBN}$_{3,5}$ \texttt{PP}$_{5,7}$. The addition of this new hyperedge allows the extraction of the rules
+\texttt{[VBD::VB3s+VBN]} $\rightarrow$ \texttt{walked ||| a march\'{e}} and
+\texttt{[VP::VP]} $\rightarrow$ \texttt{[VBD,1] [PP,2]  ||| [VB3s+VBN,1] [PP,2]}, both of which were unextractable without the virtual node.
+
+With the addition of virtual nodes, our work is directly comperable to \citet{hanneman2011general}, while being more modular, extensible and provably correct.
+One particularly interesting extension our hypergraph formulation allows is the use of parse \emph{forests} rather than $1$-best trees.
+\am{To be continued...}
+
+
+
+
+\begin{figure}[ht!]
+\centering
+\includegraphics[scale=0.25]{virtualnode.png}
+\caption{An example virtual node and its corresponding virtual edges.}
+\label{virtualnodefig}
+\end{figure}
+
+\section*{Acknowledgements}
+This research is supported by \ldots
 
 \bibliography{mtm2014}
 
