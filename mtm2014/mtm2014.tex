@@ -168,8 +168,10 @@ The construction of the hypergraph takes place by composing the input tree with 
 \begin{figure}[t]
 \centering
 \includegraphics[scale=0.5]{tree-as-dfa.pdf}
-\caption{\label{fig:det}DFA representation a tree transducer (above) and an example input tree (below). This transducer will transduce the input tree to the string \emph{x y z}.}
+\caption{\label{fig:det}DFA representation of a tree transducer (above) and an input tree (middle). This transducer will transduce the input tree to the hypergraph (below) yielding a single string derivation \emph{x y z}.}
 \end{figure}
+
+To understand how this algorithm works, the input tree DFA is matched against the `S' DFA. The output transductions are stored in the final states of the transducer DFA, and when a path is matched, an edge is added to the output hypergraph, one per matched path per translation option. Variables that were used in the input are then recursively processed, starting from the relevant transducer DFA (in this case, the `A' DFA will be invoked recursively).
 
 \section{Bayesian Synchronous Tree to String Grammar Induction}
 \label{sec:bayes}
