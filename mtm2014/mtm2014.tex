@@ -90,8 +90,9 @@ when decoding speed and translation model size are important.
 %This research is supported by \ldots
 
 \section{Tree to String Transducers}
-Tree-to-string transducers that define relations on strings and trees are a popular formalism for capturing translational equivalence where syntactic tree structures are available in either the source or target language \citep{graehl:2008,Galley2004,rounds:1970,thatcher:1970}. The tools described in this paper are a restricted version of top-down tree transducers that support multi-level tree fragments on one side and strings on the other \citep{huang:2006,Cohn2009}. Such transducers can elegantly capture syntactic regularities in translation. For example see Fig.~\ref{fig:exxrs}, which gives the rules necessary to translate between English (an SVO language with ditransitive constructions) and Welsh (a VSO language with prepositional datives).
-\begin{figure*}
+Tree-to-string transducers that define relations on strings and trees are a popular formalism for capturing translational equivalence where syntactic tree structures are available in either the source or target language \citep{graehl:2008,Galley2004,rounds:1970,thatcher:1970}. The tools described in this paper are a restricted version of top-down tree transducers that support multi-level tree fragments on one side and strings on the other, with no copying or deletion \citep{huang:2006,Cohn2009}. Such transducers can elegantly capture syntactic regularities in translation. For example see Fig.~\ref{fig:exxrs}, which gives the rules necessary to translate between English (an SVO language with ditransitive constructions) and Welsh (a VSO language with prepositional datives).
+\begin{figure}[t]
+\vspace{-.4cm}
 \begin{minipage}[t]{0.45\linewidth}
 \begin{small}
 \vspace{-.5cm}\begin{align*}
@@ -111,7 +112,7 @@ Tree-to-string transducers that define relations on strings and trees are a popu
 \end{small}
 \end{minipage}
 
-\vspace{+0.4cm} {\tt cdec} text format of above transducer (with features):
+\vspace{+0.4cm} {\tt cdec} text format of above transducer (with example features):
 \begin{small}
 \begin{verbatim}
   (S [NP] (VP [VBD] [NP] [NP])) ||| [2] [1] [4] i [3] ||| logP(s|t)=-0.2471
@@ -130,16 +131,39 @@ Tree-to-string transducers that define relations on strings and trees are a popu
 \end{small}
 
 \caption{\label{fig:exxrs}Example single-state transducer that transduces between the SVO English tree (upper right of figure) and its VSO Welsh translation: \emph{rhoddodd Ioan lyfr i mi}.}
-\end{figure*}
-
-The tools described in \S\ref{sec:bayes} are further restricted to have only a single transducer state \citep{huang:2006}. 
-
-\emph{Multi-state transducers} have states associated with each :
+\end{figure}
+\begin{figure}
+\begin{small}
 \begin{align*}
 q_0 : \textrm{(S \fbox{NP} (VP \fbox{VB} \fbox{NP}))} &\leftrightarrow \scriptsize{\fbox{1}}:q_0\ \scriptsize{\fbox{2}}:q_0\ \scriptsize{\fbox{3}}:q_{\textrm{\emph{acc}}} \\
-q_0 : \textrm{(NP (DT \emph{the}) (NN \emph{dog}))} &\leftrightarrow \textrm{\emph{der Hund}} \\
-q_{\textrm{\emph{acc}}} : \textrm{(NP (DT \emph{the}) (NN \emph{dog}))} &\leftrightarrow \textrm{\emph{den Hund}} \\
+q_0 : \textrm{(NP (DT \emph{the}) \fbox{NN})} &\leftrightarrow \textrm{\emph{der }}  \scriptsize{\fbox{1}}:q_0 \\
+q_{\textrm{\emph{acc}}} : \textrm{(NP (DT \emph{the}) \fbox{NN})} &\leftrightarrow \textrm{\emph{den }}  \scriptsize{\fbox{1}}:q_0 \\
+q_0 : \textrm{(NN \emph{dog})} &\leftrightarrow \textrm{\emph{Hund}}
 \end{align*}
+\end{small}
+{\tt cdec} text format of above transducer (with example features):
+\begin{small}
+\begin{verbatim}
+  [Q0] ||| (S [NP] (VP [VB] [NP])) ||| [Q0,1] [Q0,2] [QACC,3] ||| lp=-2.9713
+  [Q0] ||| (NP (DT the) [NN]) ||| der [Q0,1] ||| lp=-1.3443
+  [QACC] ||| (NP (DT the) [NN] ||| den [Q0,1] ||| lp=-2.9402
+  [Q0] ||| (NN dog) ||| Hund ||| lp=-0.3171
+\end{verbatim}
+\end{small}
+\caption{\label{fig:multistate}A tree-to-string transducer with multiple states encoding structural information for choosing the proper nominal inflection in English--German translation.}
+\end{figure}
+In our notation, transducers consist of a set of rules (also called edges) which pair a tree fragment in one language with a string of terminal symbols and variables in a second language. Frontier nonterminal nodes in the tree fragment are indicated with a box around the nonterminal symbol, and the corresponding substitution site in the string is indicated by a box around a number indexing the nonterminal variable in the tree fragment (counting in top-down, left to right, depth first order). Additionally, tree-to-string transducers can be further generalized so as to have multiple transducer states, shown in Fig.~\ref{fig:multistate}. The transducers in Fig.~\ref{fig:exxrs} can be understood to have a single state. For formal properties of tree-to-string transducers, we refer the reader to the above citations. 
+
+Tree-to-string transducers define a relation on strings and trees and, in translation applications, are capable of transforming either source trees (generated by a parser) into target language strings or source strings into target language parsers. Running the transducer in the tree-to-string direction can avail itself of specialized algorithms similar to finite state composition (\S\ref{sec:cdec}); in the string-to-tree direction, they can be trivially converted to synchronous context free grammars and transduction can be carried out with standard CFG parsing algorithms \citep{Galley2004}.
+
+\section{Tree-to-string translation with {\tt cdec}}
+\label{sec:cdec}
+
+The {\tt cdec} decoder \citep{Dyer_etal_2010} has a modular decoder architecture that factors the decoding problem into multiple stages: first, a hypergraph is generated that represents the translation search space produced by composing the input (a string, lattice, or tree) with the relevant transducer (a synchronous context-free grammar, a finite state transducer, etc.); second, the hypergraph is rescored---and possibly restructured (in the case of adding an $n$-gram language model)---with generic feature extractors; finally, various outputs of interest are extracted (the best translation, the $k$-best translations, alignments to a target string, statistics required for parameter optimization, etc.).
+
+The original {\tt cdec} implementation contained hypergraph generators based on a variety of translation backends, although SCFG translation is the most widely used \citep{chiang:2007}. In this section, we describe the tree-to-string algorithm that generates a translation forest given a source language parse tree and a tree-to-string transducer.
+
+The construction of the hypergraph takes place by composing the input tree with the tree-to-string transducer using a top down, recursive algorithm. Intuitively, the algorithm matches all rules in the transducer that start at a given node in the input tree and match at least one complete rewrite in the source tree. Any variables that were used in the match are then recursively processed until the entire input tree is completed. To make this process efficient, the tree side of the input transducer is determinized by depth-first, left-to-right factoring---this process is analogous to left factoring a context-free grammar \citep{klein:2001}. By matching the input tree in the same depth-first, left-to-right order...
 
 \section{Bayesian Synchronous Tree to String Grammar Induction}
 \label{sec:bayes}
