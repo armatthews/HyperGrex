@@ -322,16 +322,16 @@ We briefly discuss the performance of these grammars in a tree-to-string transla
 Each of these systems was tuned on mt03 and tested on mt08.
 Table.~\ref{bleuresults_worm} summarizes the findings.
 Although tree-to-string system with minimal rules underperforms Hiero slightly, it uses orders of magnitude fewer rules---in fact
-the number of rules in the Hiero grammar \emph{filtered} for the 691-sentence test set is twice as large as the Bayesian grammar.
+the number of rules in the Hiero grammar \emph{filtered} for the 691-sentence test set is twice as large as the Bayesian grammar. The unfiltered Hiero grammar is 2 orders of magnitude larger than the Bayesian grammar.
 
 \begin{figure}[ht!]
 \centering
 \begin{tabular}{r c l c}
 Extractor & iterations & rule count & mt08 \\
-Hiero & -- & 1.5M (filtered) & 27.9 \\
-HyperGrex minimal (\S\ref{sec:hypergrex}) & -- & 1.4M (unfiltered-mt08) & 26.5 \\
-Bayes (\S\ref{sec:bayes}) & 100 & 0.77M (unfiltered) & 26.5 \\
-Bayes (\S\ref{sec:bayes}) & 1,000 & 0.74M (unfiltered) & 26.9 \\
+Hiero & -- & 36.6M & 27.9 \\
+HyperGrex minimal (\S\ref{sec:hypergrex}) & -- & 1.4M & 26.5 \\
+Bayes (\S\ref{sec:bayes}) & 100 & 0.77M & 26.5 \\
+Bayes (\S\ref{sec:bayes}) & 1,000 & 0.74M & 26.9 \\
 \end{tabular}
 \caption{Comparing HyperGrex (minimal rules), the Bayesian extractor after different numbers of iterations, and Hiero.
 \label{bleuresults_worm}}
